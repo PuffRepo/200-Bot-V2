@@ -46,6 +46,25 @@ python -m pip install py-cord
 python -m scripts.archive_s8_results --application-id <AUTHORIZED_BOT_APP_ID> --guild-id <LIVE_SERVER_ID> --channel-id <TIER_ALL_RESULTS_ID> --since 2025-09-28 --output C:\private\s8-results
 ```
 
+On Windows, run these commands from `D:\Projects\200-Lounge\200-Bot-V2`
+after fetching and checking out `v2-season-reset-preview`. The historical
+`tier-all-results` channel ID in `sql/init.sql` is `1010600464003387542`;
+confirm that the current live channel has that ID using Discord Developer Mode
+before entering it. The live server ID is **not** the lab server ID
+`1553806194257432726`. Copy the live server's ID in Discord and enter it as
+`--guild-id`.
+
+If you use the development app (`1553807544013684807`) for this one-time read,
+the owner must first install it in the live server with access limited to the
+results channel. Temporarily having it in two servers makes the lab-only
+`discord_smoke.py` and `v2_lab.py` isolation checks fail; do not run those lab
+programs while it is installed in the live server. Stop any running lab bot,
+run only the archiver, and remove its live-server installation afterward. A
+different bot already under
+your control and installed in the live server also works; use **that** bot's
+application ID and token. The script checks both against the requested server
+and channel before downloading anything.
+
 Add another `--channel-id <ID>` for each other S8 results channel. Add
 `--until YYYY-MM-DD` if S9 posts have begun; both dates are UTC and `--until`
 is exclusive. The token is entered at a hidden local prompt. The output
