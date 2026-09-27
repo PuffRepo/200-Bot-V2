@@ -62,7 +62,7 @@ This runner validates the application and lab server before registering commands
 
 ### Verification and name-change trial
 
-The V2 identity commands use `private/v2_lab.sqlite3` in your local checkout. That file is ignored by Git. It starts empty and is **not** connected to previous-season players, the live website, or Discord roles. Use test identities in the lab; do not interpret an approval here as live verification.
+The V2 identity commands use `dont/v2_lab.sqlite3` in your local checkout. The repository already ignores this folder. The file starts empty and is **not** connected to previous-season players, the live website, or Discord roles. Use test identities in the lab; do not interpret an approval here as live verification.
 
 | Who | Command in lab `#bot-debug` | Effect |
 | --- | --- | --- |
