@@ -1,7 +1,8 @@
-# V2 season MMR reset: first implementation
+# V2 S8 to S9 MMR transition
 
 This is a read-only preview. It changes neither the database nor Discord roles.
-The source is the previous **actual** season database, not the old SQL dumps in this repository.
+The source must cover the **actual S8 season**. The checked-in S7 dump ends at
+table 2791 on 2025-09-28 and does not supply S8 results or S8 final MMR.
 
 ## Agreed rule
 
@@ -12,18 +13,87 @@ The source is the previous **actual** season database, not the old SQL dumps in 
 
 The legacy schema has no completed-table flag. The preview flags tables whose player row count differs from 12, duplicate player rows, and missing/invalid post-table MMR. Substitutions can make a row count other than 12 legitimate: staff must review these exceptions. A complete-looking table can still be incorrect, so compare a sample with the published results. A standalone strike or MMR penalty changes `player.mmr` separately and is not itself a post-table observation.
 
-## Four local CSV exports
+## Recover S8 before computing a reset
 
-Keep the exports outside Git, for example in a private folder on your computer. Use a read-only database account against the actual previous-season schema. Export query results as CSV with column headers and the exact column names below; never run `sql/development_init.sql` on season data.
+First ask whoever controls the **existing Railway project or database** to check its
+database service and Backups tab for S8. The expiry of a custom website domain
+does not itself prove that its database was deleted. If data still exists, make
+a private, read-only export of S8 `player`, `mogi`, and `player_mogi`, plus
+verification/name history and strike/penalty records needed for the new bot.
+Preserve the original backup and keep any restored copy separate from production.
+Server ownership alone does not provide Railway project access.
+Railway documents [separate generated and custom domains](https://docs.railway.com/networking/domains/working-with-domains)
+and [volume backups in the service Backups tab](https://docs.railway.com/volumes/backups).
+
+If no S8 database is available, archive the published result posts before doing
+transcription. The inherited `/table` cog posts a **results image and a separate
+MMR JPEG** under embeds bearing a table ID. The MMR image shows each player name
+and post-table MMR. It contains no player Discord ID or machine-readable MMR
+row. That is why the result images alone cannot be passed to the reset preview.
+
+An authorized bot **already able to see the live server** can run the local
+archiver below. It requires Pycord, `View Channel`, `Read Message History`, and
+Message Content intent enabled in its Developer Portal; message content
+controls access to embeds and attachments. It does not need Administrator,
+Manage Roles, or Send Messages. The lab-only development bot cannot read the
+live channel unless the owner separately installs it there. Never use a user
+account token or send any token to this project.
+See [Discord's privileged intents guide](https://support-dev.discord.com/hc/en-us/articles/6207308062871-What-are-Privileged-Intents)
+for current access rules.
+
+```powershell
+python -m pip install py-cord
+python -m scripts.archive_s8_results --application-id <AUTHORIZED_BOT_APP_ID> --guild-id <LIVE_SERVER_ID> --channel-id <TIER_ALL_RESULTS_ID> --since 2025-09-28 --output C:\private\s8-results
+```
+
+Add another `--channel-id <ID>` for each other S8 results channel. Add
+`--until YYYY-MM-DD` if S9 posts have begun; both dates are UTC and `--until`
+is exclusive. The token is entered at a hidden local prompt. The output
+directory must be new. Run on your own machine and keep the archive private.
+The tool reads only and saves each image locally with a SHA-256 checksum. Its
+`messages.jsonl` and `index.csv` retain the table IDs, original Discord message
+links, and attachment status; `audit.json` lists unpaired posts, missing images,
+and gaps in table IDs. An interrupted run leaves the processed messages on disk;
+use a fresh output directory for a complete retry.
+Exit code `0` means the indexed posts have paired images with no detected gaps;
+`1` means inspect the audit; `2` means export failed. No exit code proves that
+every S8 table was recovered.
+
+**The archive is evidence, not a database reconstruction.** Verify which table
+IDs belong to S8, inspect edits/reverted tables and gaps, and ensure any other
+result channels are included. Read the MMR images with OCR/manual review and
+verify every post-table MMR value (normally 12 per table) against the image. Match historical
+player names to immutable Discord player IDs using authoritative identity or
+name-change records; ambiguous names need staff review. For each verified S8
+table, construct `results.csv` with `player_id,mogi_id,new_mmr` and maintain a
+private source ledger linking **each row** to its image/message and reviewer.
+For `players.csv`, recover S8-end `player.mmr` and `rank_id` from the database
+or other audited records. The last published table value may be stale after a
+penalty, correction, or rename. Current rank roles give reset eligibility but
+do not establish a no-game player's S8 current MMR. If either value or the
+season's completeness cannot be verified, leave that player unresolved; do not
+invent a carryover or treat an absent table as zero S8 games.
+
+## Four local CSV inputs
+
+Keep inputs outside Git, for example in a private folder on your computer. If S8
+database access is recovered, use a read-only database account against the actual
+S8 schema. Export query results as CSV with column headers and the exact column
+names below; never run `sql/development_init.sql` on season data. If rebuilding
+from result images, keep a row-by-row source ledger and compare table counts and
+MMR with independent records before interpreting the preview.
 
 | File | Required columns | Source |
 | --- | --- | --- |
-| `players.csv` | `player_id,mmr,rank_id` | `SELECT player_id, mmr, rank_id FROM <PREVIOUS_SEASON_SCHEMA>.player` |
-| `results.csv` | `player_id,mogi_id,new_mmr` | `SELECT pm.player_id, pm.mogi_id, pm.new_mmr FROM <PREVIOUS_SEASON_SCHEMA>.player_mogi pm JOIN <PREVIOUS_SEASON_SCHEMA>.mogi m ON m.mogi_id = pm.mogi_id` |
+| `players.csv` | `player_id,mmr,rank_id` | `SELECT player_id, mmr, rank_id FROM <S8_SCHEMA>.player` or verified S8-end reconstruction |
+| `results.csv` | `player_id,mogi_id,new_mmr` | `SELECT pm.player_id, pm.mogi_id, pm.new_mmr FROM <S8_SCHEMA>.player_mogi pm JOIN <S8_SCHEMA>.mogi m ON m.mogi_id = pm.mogi_id` or individually reviewed MMR images |
 | `ranks.csv` | `rank_id,rank_name,mmr_min,mmr_max` | Current server rank roles and **current** MMR boundaries. Include all nine ranked roles and Ruby; the archived seed is incomplete. |
 | `ranked_members.csv` | `player_id,rank_role_id` | Current Discord guild role roster, one row per member per ranked role. This defines eligibility; use the helper below if the bot has member-list access. |
 
-In the SQL examples, replace `<PREVIOUS_SEASON_SCHEMA>` with the schema verified by the owner. Do not copy the angle brackets into SQL. Confirm the export covers every player and every table from that season. Keep the `new_mmr` values as stored, including blanks so the preview can flag errors.
+In the SQL examples, replace `<S8_SCHEMA>` with the schema verified by the owner.
+Do not copy the angle brackets into SQL. Confirm the export covers every player
+and every completed table from S8. Keep the `new_mmr` values as stored,
+including blanks so the preview can flag errors.
 
 To export the guild rank roster, use a bot already installed in the current server with Guild Members intent enabled. The command only reads member roles and saves a local CSV. Use the application ID for the token supplied at the hidden prompt and the **current server** ID; the lab-only bot cannot read another server.
 
@@ -39,7 +109,7 @@ Run from the root of the `v2-development` checkout, replacing the example paths 
 python -m scripts.season_reset_preview --players C:\private\players.csv --results C:\private\results.csv --ranks C:\private\ranks.csv --ranked-members C:\private\ranked_members.csv --output C:\private\season_reset_preview.csv
 ```
 
-The output contains each ranked member's current MMR, table count, exact median, proposed integer MMR and rank, carryover/median source, and any review notes. Exit code `0` means every row was computed without a flagged exception; exit code `1` means inspect the review rows and flagged tables; exit code `2` means the inputs or output failed validation. **Exit code `0` is not approval to write**: staff must compare sample players and unusual rows with the prior-season results and current roles. If an input changes, rerun with a new output path or `--overwrite`.
+The output contains each ranked member's current MMR, table count, exact median, proposed integer MMR and rank, carryover/median source, and any review notes. Exit code `0` means every row was computed without a flagged exception **within the supplied CSVs**; it cannot detect missing S8 tables or players. Exit code `1` means inspect the review rows and flagged tables; exit code `2` means the inputs or output failed validation. **Exit code `0` is not approval to write**: staff must verify complete S8 coverage, compare sample players and unusual rows with the published results and current roles, and resolve unmatched identities. If an input changes, rerun with a new output path or `--overwrite`.
 
 ## Write phase gate
 
