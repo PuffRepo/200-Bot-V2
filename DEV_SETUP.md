@@ -18,7 +18,9 @@ On **Installation**, use **Guild Install** with the `bot` and `applications.comm
 
 ## 2. Run the lab connection check
 
-From a local terminal with Python 3.10, clone the development branch and install Pycord in an isolated environment:
+From a local terminal, clone the development branch and install Pycord in an isolated environment. Python 3.10 matches the inherited project's README; current Pycord also supports Python 3.13 for this connection check.
+
+On Linux/macOS:
 
 ```sh
 git clone --branch v2-development https://github.com/PuffRepo/200-Bot-V2.git
@@ -28,6 +30,18 @@ python3.10 -m venv venv
 python -m pip install py-cord
 python scripts/discord_smoke.py
 ```
+
+On Windows PowerShell with Python 3.10 installed:
+
+```powershell
+git clone --branch v2-development https://github.com/PuffRepo/200-Bot-V2.git
+cd 200-Bot-V2
+py -3.10 -m venv venv
+.\venv\Scripts\python.exe -m pip install py-cord
+.\venv\Scripts\python.exe scripts\discord_smoke.py
+```
+
+For an existing checkout, switch to `v2-development` and pull the latest commits before rerunning the check. Python 3.13 can run this check too; use a separate Python 3.10 environment when preparing the full inherited bot.
 
 The script prompts for the development bot token without echoing it. It checks that the token belongs to application `1553807544013684807`, that the bot sees exactly the lab server, and that the debug text channel exists there. It then disconnects. This check does not load legacy cogs, touch the database, register commands, or send messages. If it fails, check the application and guild installation before proceeding.
 
