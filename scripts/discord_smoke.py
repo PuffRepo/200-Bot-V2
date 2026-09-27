@@ -1,43 +1,57 @@
 """Read-only Discord connection check for the V2 development bot."""
 
-import argparse
 import getpass
 
 import discord
 
+APPLICATION_ID = 1553807544013684807
+LAB_GUILD_ID = 1553806194257432726
+DEBUG_CHANNEL_ID = 1553807230598647808
+
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("guild_id", type=int, help="ID of the lab server")
-    args = parser.parse_args()
-    if args.guild_id <= 0:
-        parser.error("guild_id must be a positive Discord server ID")
-
     token = getpass.getpass("Development bot token (hidden): ")
     if not token:
-        parser.error("a development bot token is required")
+        print("A development bot token is required.")
+        return 2
 
     intents = discord.Intents.none()
     intents.guilds = True
-    bot = discord.Bot(intents=intents)
+    client = discord.Client(intents=intents)
     connected_to_lab = False
 
-    @bot.event
+    @client.event
     async def on_ready() -> None:
         nonlocal connected_to_lab
-        guilds = {guild.id: guild for guild in bot.guilds}
-        if set(guilds) == {args.guild_id}:
-            connected_to_lab = True
-            print(f"Connected as {bot.user} to lab server: {guilds[args.guild_id].name}")
-        else:
-            print(
-                "Lab isolation check failed: expected only server "
-                f"{args.guild_id}; bot currently sees {len(guilds)} server(s)."
-            )
-        await bot.close()
+        try:
+            application = await client.application_info()
+            guilds = {guild.id: guild for guild in client.guilds}
+
+            if application.id != APPLICATION_ID:
+                print(f"Wrong bot application: expected {APPLICATION_ID}, got {application.id}.")
+            elif set(guilds) != {LAB_GUILD_ID}:
+                print(
+                    "Lab isolation check failed: expected only server "
+                    f"{LAB_GUILD_ID}; bot currently sees {len(guilds)} server(s)."
+                )
+            else:
+                guild = guilds[LAB_GUILD_ID]
+                channel = guild.get_channel(DEBUG_CHANNEL_ID)
+                if not isinstance(channel, discord.TextChannel):
+                    print(f"Lab debug text channel {DEBUG_CHANNEL_ID} was not found.")
+                else:
+                    connected_to_lab = True
+                    print(
+                        f"Connected as {client.user} to {guild.name}; "
+                        f"found #{channel.name}. Lab checks passed."
+                    )
+        except discord.HTTPException as error:
+            print(f"Could not read bot application information (HTTP {error.status}).")
+        finally:
+            await client.close()
 
     try:
-        bot.run(token)
+        client.run(token)
     except discord.LoginFailure:
         print("Discord rejected the development bot token.")
         return 2
