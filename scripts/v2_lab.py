@@ -24,7 +24,7 @@ def lab_staff(ctx: discord.ApplicationContext) -> bool:
 
 
 async def serve_lab(token: str) -> int:
-    store = IdentityStore(Path(__file__).resolve().parents[1] / "private" / "v2_lab.sqlite3")
+    store = IdentityStore(Path(__file__).resolve().parents[1] / "dont" / "v2_lab.sqlite3")
     intents = discord.Intents.none()
     intents.guilds = True
     bot = discord.Bot(
@@ -180,7 +180,7 @@ async def serve_lab(token: str) -> int:
             return 1
 
         print(f"Lab bot ready as {bot.user}. Try /v2status in #{channel.name}; Ctrl+C stops it.")
-        print("Identity and name requests use only private/v2_lab.sqlite3; no live database or roles.")
+        print("Identity and name requests use only dont/v2_lab.sqlite3; no live database or roles.")
         await connection
         return 0
     finally:
