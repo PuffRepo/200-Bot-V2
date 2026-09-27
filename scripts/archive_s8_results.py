@@ -90,11 +90,25 @@ async def snapshot_message(message, directory: Path) -> dict:
     return record
 
 
-def write_report(records: list[dict], directory: Path) -> dict:
+def write_report(records: list[dict], directory: Path,
+                 requested_channels: list[tuple[int, str]] | None = None,
+                 primary_channel_id: int | None = None) -> dict:
     groups = defaultdict(Counter)
     failures = []
     missing_images = []
+    by_channel = {
+        channel_id: {"name": name, "message_count": 0, "table_ids": set(),
+                     "posts_without_table_id": 0}
+        for channel_id, name in (requested_channels or [])
+    }
     for record in records:
+        channel = by_channel.setdefault(record["channel_id"], {
+            "name": record["channel_name"], "message_count": 0, "table_ids": set(),
+            "posts_without_table_id": 0,
+        })
+        channel["message_count"] += 1
+        channel["table_ids"].update(record["table_ids"])
+        channel["posts_without_table_id"] += not record["table_ids"]
         for table_id in record["table_ids"]:
             groups[table_id][record["kind"]] += 1
         if record["table_ids"] and record["kind"] in {"mmr", "result"} and not any(
@@ -110,9 +124,26 @@ def write_report(records: list[dict], directory: Path) -> dict:
         for table_id, kinds in sorted(groups.items())
         if kinds["result"] != 1 or kinds["mmr"] != 1 or kinds["other"]
     }
+    primary_ids = by_channel[primary_channel_id]["table_ids"] if primary_channel_id else set()
+    missing_from_primary = {
+        str(table_id): sorted(channel_id for channel_id, channel in by_channel.items()
+                              if channel_id != primary_channel_id and table_id in channel["table_ids"])
+        for table_id in sorted(set(groups) - primary_ids)
+    } if primary_channel_id else {}
     report = {
         "message_count": len(records),
         "table_ids_found": len(groups),
+        "channels": {
+            str(channel_id): {"name": channel["name"],
+                              "message_count": channel["message_count"],
+                              "table_ids_found": len(channel["table_ids"]),
+                              "lowest_table_id": min(channel["table_ids"], default=None),
+                              "highest_table_id": max(channel["table_ids"], default=None),
+                              "posts_without_table_id": channel["posts_without_table_id"]}
+            for channel_id, channel in sorted(by_channel.items())
+        },
+        "primary_channel_id": primary_channel_id,
+        "table_ids_missing_from_primary_channel": missing_from_primary,
         "lowest_table_id": min(groups, default=None),
         "highest_table_id": max(groups, default=None),
         "posts_without_table_id": sum(not record["table_ids"] for record in records),
@@ -123,7 +154,9 @@ def write_report(records: list[dict], directory: Path) -> dict:
         "table_ids_needing_review": problems,
         "posts_missing_images": missing_images,
         "failed_image_downloads": failures,
-        "note": "This inventory cannot prove the season is complete or identify reverted tables.",
+        "note": "Mirrored posts may appear in more than one results channel. "
+                "Review duplicate IDs and S8 season boundaries; this inventory cannot prove "
+                "the season is complete or identify reverted tables.",
     }
     (directory / "audit.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     with (directory / "index.csv").open("w", newline="", encoding="utf-8") as stream:
@@ -173,6 +206,9 @@ async def export(args, token: str) -> dict:
                 raise RuntimeError(f"Bot cannot view and read history in channel {channel_id}")
             channels.append(channel)
 
+        if args.check_access:
+            return {"channels": [(channel.id, channel.name) for channel in channels]}
+
         args.output.mkdir(parents=True, exist_ok=False)
         records = []
         with (args.output / "messages.jsonl").open("w", encoding="utf-8") as stream:
@@ -183,7 +219,9 @@ async def export(args, token: str) -> dict:
                     stream.write(json.dumps(record, ensure_ascii=False) + "\n")
                     stream.flush()
                     records.append(record)
-        return write_report(records, args.output)
+        return write_report(records, args.output,
+                            [(channel.id, channel.name) for channel in channels],
+                            args.primary_channel_id)
     finally:
         ready.cancel()
         with suppress(asyncio.CancelledError):
@@ -201,17 +239,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--guild-id", type=int, required=True)
     parser.add_argument("--channel-id", type=int, action="append", required=True,
                         help="Results channel ID; repeat to include other results channels")
+    parser.add_argument("--primary-channel-id", type=int,
+                        help="Results channel to compare against the other selected channels")
     parser.add_argument("--since", type=parse_day, required=True,
                         help="UTC start day, e.g. 2025-09-28")
     parser.add_argument("--until", type=parse_day, help="Exclusive UTC end day")
     parser.add_argument("--output", type=Path, required=True, help="New private archive directory")
+    parser.add_argument("--check-access", action="store_true",
+                        help="Check all requested channels without reading history or writing files")
     args = parser.parse_args(argv)
     if args.until and args.until <= args.since:
         parser.error("--until must be after --since")
-    if args.output.exists():
+    if args.output.exists() and not args.check_access:
         parser.error("Output directory already exists; use a new location to preserve archives")
     if len(args.channel_id) != len(set(args.channel_id)):
         parser.error("Each --channel-id may be supplied only once")
+    if args.primary_channel_id is not None and args.primary_channel_id not in args.channel_id:
+        parser.error("--primary-channel-id must also appear as a --channel-id")
     try:
         token = getpass.getpass("Authorized server bot token (hidden): ")
         if not token:
@@ -220,15 +264,29 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as error:
         print(f"Archive failed: {error}", file=sys.stderr)
         return 2
+    if args.check_access:
+        print("Access confirmed for the requested server and channels:")
+        for channel_id, name in report["channels"]:
+            print(f"  #{name} ({channel_id})")
+        print("No message history was read and no files were created.")
+        return 0
     print(f"Archived {report['message_count']} messages and indexed "
           f"{report['table_ids_found']} table IDs in {args.output}.")
-    print(f"Review {len(report['table_ids_needing_review'])} table IDs, "
+    primary_summary = (f"{len(report['table_ids_missing_from_primary_channel'])} IDs "
+                       "missing from the primary channel, " if args.primary_channel_id
+                       else "no primary-channel comparison, ")
+    print(f"Review {len(report['channels'])} channel summaries, "
+          f"{primary_summary}"
+          f"{len(report['table_ids_needing_review'])} table IDs, "
           f"{len(report['unmatched_ids_between_first_and_last'])} gaps, "
           f"{len(report['posts_missing_images'])} posts without images, and "
           f"{len(report['failed_image_downloads'])} failed downloads in audit.json.")
     return 1 if (not report["table_ids_found"] or report["table_ids_needing_review"]
+                 or report["table_ids_missing_from_primary_channel"]
                  or report["unmatched_ids_between_first_and_last"]
-                 or report["posts_missing_images"] or report["failed_image_downloads"]) else 0
+                 or report["posts_missing_images"] or report["failed_image_downloads"]
+                 or any(channel["message_count"] == 0
+                        for channel in report["channels"].values())) else 0
 
 
 if __name__ == "__main__":

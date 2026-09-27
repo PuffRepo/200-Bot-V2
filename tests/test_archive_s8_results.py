@@ -59,6 +59,28 @@ class ArchiveTest(unittest.TestCase):
             report = write_report(records, Path(temp))
             self.assertEqual(len(report["posts_missing_images"]), 2)
 
+    def test_channel_coverage_finds_tables_absent_from_primary(self):
+        def record(channel_id, table_id, kind):
+            return {"channel_id": channel_id, "channel_name": f"results-{channel_id}",
+                    "table_ids": [table_id], "kind": kind,
+                    "jump_url": f"https://discord.com/channels/1/{channel_id}/{table_id}",
+                    "attachments": [{"status": "saved"}], "message_id": table_id,
+                    "created_at": "2026-09-27T00:00:00+00:00"}
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            records = [record(2, 3390, "result"), record(3, 3390, "mmr"),
+                       record(3, 3391, "result"), record(3, 3391, "mmr")]
+            report = write_report(records, root, [(2, "tier-all-results"),
+                                                   (3, "tier-a-results"),
+                                                   (4, "tier-sq-results")], 2)
+            self.assertEqual(report["table_ids_missing_from_primary_channel"], {"3391": [3]})
+            self.assertEqual(report["channels"]["2"]["table_ids_found"], 1)
+            self.assertEqual(report["channels"]["3"]["table_ids_found"], 2)
+            self.assertEqual(report["channels"]["4"]["message_count"], 0)
+            self.assertEqual(report["table_ids_needing_review"], {})
+            self.assertEqual(json.loads((root / "audit.json").read_text()), report)
+
 
 if __name__ == "__main__":
     unittest.main()

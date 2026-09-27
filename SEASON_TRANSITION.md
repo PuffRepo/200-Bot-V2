@@ -31,52 +31,117 @@ MMR JPEG** under embeds bearing a table ID. The MMR image shows each player name
 and post-table MMR. It contains no player Discord ID or machine-readable MMR
 row. That is why the result images alone cannot be passed to the reset preview.
 
-An authorized bot **already able to see the live server** can run the local
-archiver below. It requires Pycord, `View Channel`, `Read Message History`, and
-Message Content intent enabled in its Developer Portal; message content
-controls access to embeds and attachments. It does not need Administrator,
-Manage Roles, or Send Messages. The lab-only development bot cannot read the
-live channel unless the owner separately installs it there. Never use a user
-account token or send any token to this project.
-See [Discord's privileged intents guide](https://support-dev.discord.com/hc/en-us/articles/6207308062871-What-are-Privileged-Intents)
-for current access rules.
+### Temporarily archive the live results channels
+
+Use the V2 Dev app (`1553807544013684807`) only if the server owner agrees to
+install it temporarily. Before installation, stop **every running instance**
+using its token, including `scripts/v2_lab.py`; do not start another instance
+until the archive finishes. **Never run the inherited `main.py` in the live
+server**: on startup it loads legacy cogs, posts a debug message, and leaves
+servers other than its configured lounge. Run only
+`scripts.archive_s8_results` during this temporary installation. Neither
+`discord_smoke.py` nor `v2_lab.py` can pass their lab-only checks while the
+development bot is installed in both servers.
+
+In Discord Developer Mode, copy the **live 200 Lounge server ID** and verify
+the names and IDs of its results channels. These IDs come from the old
+`sql/init.sql` configuration; they might have changed:
+
+| Old tier | Old results channel ID |
+| --- | --- |
+| S | `1208850019512483871` |
+| A | `1010600237880053800` |
+| B | `1010600376187244655` |
+| C | `1010600418524532889` |
+| ALL | `1010600464003387542` |
+| SQ | `1010600944209244210` |
+
+Ask the owner to review any other S8 results channels and add their **verified
+current IDs**. If an old channel is gone, record that fact and check for a
+replacement; omit the missing ID from the command only after noting the gap.
+The live server ID is **not** the lab server ID `1553806194257432726`.
+
+The owner can use the Developer Portal's **Installation** settings to install
+the development app with only the `bot` scope and no requested write or
+moderation permissions. Give its bot role `View Channel` and `Read Message
+History` on the selected results channels, using bot-specific channel
+overrides where needed. Enable **Message Content** under **Bot → Privileged
+Gateway Intents** so historical embeds and attachments are available. Verify
+the bot's effective permissions in those channels; it needs no `Send
+Messages`, `Administrator`, `Manage Roles`, `Manage Channels`, or `Manage
+Messages`. Do not alter `@everyone` or other members' permissions for this
+archive. The script asks for the token in a hidden local prompt; never paste
+it into chat, the terminal command, Git, or a PR. See [Discord's privileged
+intents guide](https://support-dev.discord.com/hc/en-us/articles/6207308062871-What-are-Privileged-Intents)
+for the intent setting.
+
+From your existing Windows PowerShell checkout, fetch the latest archive tool:
 
 ```powershell
-python -m pip install py-cord
-python -m scripts.archive_s8_results --application-id <AUTHORIZED_BOT_APP_ID> --guild-id <LIVE_SERVER_ID> --channel-id <TIER_ALL_RESULTS_ID> --since 2025-09-28 --output C:\private\s8-results
+cd D:\Projects\200-Lounge\200-Bot-V2
+git fetch origin v2-season-reset-preview
+git switch --detach FETCH_HEAD
+py -3.13 -m pip install py-cord
 ```
 
-On Windows, run these commands from `D:\Projects\200-Lounge\200-Bot-V2`
-after fetching and checking out `v2-season-reset-preview`. The historical
-`tier-all-results` channel ID in `sql/init.sql` is `1010600464003387542`;
-confirm that the current live channel has that ID using Discord Developer Mode
-before entering it. The live server ID is **not** the lab server ID
-`1553806194257432726`. Copy the live server's ID in Discord and enter it as
-`--guild-id`.
+Replace the IDs below with the **verified current IDs**, removing any missing
+channel only after recording why. Enter the live server ID copied from
+Discord. Keep `--primary-channel-id` set to the current `tier-all-results` ID;
+if that channel is gone, omit that option and review `index.csv` by channel.
+The 2025-09-28 start date deliberately includes the final day in the old S7
+dump, so S7 posts must be excluded during later review. Add `--until
+YYYY-MM-DD` to `$archiveArgs` if S9 results have begun; it is an **exclusive
+UTC** end date.
 
-If you use the development app (`1553807544013684807`) for this one-time read,
-the owner must first install it in the live server with access limited to the
-results channel. Temporarily having it in two servers makes the lab-only
-`discord_smoke.py` and `v2_lab.py` isolation checks fail; do not run those lab
-programs while it is installed in the live server. Stop any running lab bot,
-run only the archiver, and remove its live-server installation afterward. A
-different bot already under
-your control and installed in the live server also works; use **that** bot's
-application ID and token. The script checks both against the requested server
-and channel before downloading anything.
+```powershell
+$liveServerId = Read-Host 'Live 200 Lounge server ID'
+if ($liveServerId -eq '1553806194257432726') { throw 'This is the lab server ID' }
+$tierAllId = '1010600464003387542'
+$resultChannels = @(
+  '1208850019512483871', # tier-s-results
+  '1010600237880053800', # tier-a-results
+  '1010600376187244655', # tier-b-results
+  '1010600418524532889', # tier-c-results
+  $tierAllId,            # tier-all-results
+  '1010600944209244210'  # tier-sq-results
+)
+$archivePath = "$env:USERPROFILE\Documents\200-Lounge-S8-all-results"
+$archiveArgs = @('--application-id', '1553807544013684807',
+  '--guild-id', $liveServerId, '--primary-channel-id', $tierAllId,
+  '--since', '2025-09-28', '--output', $archivePath)
+foreach ($id in $resultChannels) { $archiveArgs += @('--channel-id', $id) }
+py -3.13 -m scripts.archive_s8_results @archiveArgs --check-access
+```
 
-Add another `--channel-id <ID>` for each other S8 results channel. Add
-`--until YYYY-MM-DD` if S9 posts have begun; both dates are UTC and `--until`
-is exclusive. The token is entered at a hidden local prompt. The output
-directory must be new. Run on your own machine and keep the archive private.
-The tool reads only and saves each image locally with a SHA-256 checksum. Its
-`messages.jsonl` and `index.csv` retain the table IDs, original Discord message
-links, and attachment status; `audit.json` lists unpaired posts, missing images,
-and gaps in table IDs. An interrupted run leaves the processed messages on disk;
-use a fresh output directory for a complete retry.
-Exit code `0` means the indexed posts have paired images with no detected gaps;
-`1` means inspect the audit; `2` means export failed. No exit code proves that
-every S8 table was recovered.
+The access check validates the application, live server, selected text
+channels, and read permissions. It **does not** read history, download images,
+or create an output directory. Compare the printed channel names with the
+channels you intended. If it fails, correct the IDs or bot access with the
+owner before running the archive. Once the check passes, run:
+
+```powershell
+py -3.13 -m scripts.archive_s8_results @archiveArgs
+```
+
+The archiver reads only the selected channels, sends no messages, and saves
+result images locally with SHA-256 checksums. Keep the archive private.
+`messages.jsonl` and `index.csv` retain original message links; `audit.json`
+lists the message count and ID range for **each channel**, table IDs found in
+another channel but missing from `tier-all-results`, unpaired or mirrored
+posts, missing images, and gaps. Duplicate posts across tier channels and ALL
+may be normal; inspect their links before treating them as separate tables.
+An empty channel or an ID absent from ALL needs investigation. An interrupted
+run leaves partial files; use a **new output directory** for a complete retry.
+Exit code `0` means no indexed issue was detected, `1` means review
+`audit.json`, and `2` means the archive failed. No exit code proves S8 is
+complete. Check the known last S8 mogi, **3390**, against the original posts
+and investigate any missing range or channel before constructing CSVs.
+
+After saving and reviewing the archive, have the owner remove the V2 Dev bot
+from the live server and remove any temporary bot-specific channel overrides.
+Verify that it remains in the lab server alone before restarting a lab runner.
+A separate existing bot under your control can also read the channels; use
+that bot's application ID and token, with the same limited permissions.
 
 **The archive is evidence, not a database reconstruction.** Verify which table
 IDs belong to S8, inspect edits/reverted tables and gaps, and ensure any other

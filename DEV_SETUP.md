@@ -60,6 +60,12 @@ Use the Python interpreter where you installed `py-cord`; if you followed the Py
 
 This runner validates the application and lab server before registering its single guild command. It does not load inherited cogs, open a database, send startup messages, or remove other registered commands. If `/v2status` does not appear, check that the lab application was installed with the `applications.commands` scope and that the runner printed `Lab bot ready`.
 
+For the one-time S8 results archive, the owner may temporarily install this
+development bot in the live server. Stop the lab runner first. While the bot
+belongs to both servers, the lab-only smoke check and V2 lab runner reject the
+extra server. Follow [the live archive procedure](SEASON_TRANSITION.md#temporarily-archive-the-live-results-channels): run only its read-only archiver,
+never `main.py`, then remove the live installation before resuming lab tests.
+
 ## 4. Prepare the full inherited bot before running `main.py`
 
 - Install the remaining dependencies with `python -m pip install -r requirements.txt` in the same virtual environment. Use a separate MySQL/MariaDB database for development.
