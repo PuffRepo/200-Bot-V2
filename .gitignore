@@ -20,3 +20,8 @@ rules.txt
 __pycache__
 .pytest_cache
 .ruff_cache
+
+# Local season exports and preview reports contain member identifiers.
+/private/
+/data/
+/output/
