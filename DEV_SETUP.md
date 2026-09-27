@@ -45,7 +45,22 @@ For an existing checkout, switch to `v2-development` and pull the latest commits
 
 The script prompts for the development bot token without echoing it. It checks that the token belongs to application `1553807544013684807`, that the bot sees exactly the lab server, and that the debug text channel exists there. It then disconnects. This check does not load legacy cogs, touch the database, register commands, or send messages. If it fails, check the application and guild installation before proceeding.
 
-## 3. Prepare the full inherited bot before running `main.py`
+## 3. Test one V2 command in the lab
+
+After the connection check passes, run the small V2 lab bot from your existing Windows checkout in PowerShell:
+
+```powershell
+cd D:\Projects\200-Lounge\200-Bot-V2
+git switch v2-development
+git pull --ff-only origin v2-development
+py -3.13 scripts\v2_lab.py
+```
+
+Use the Python interpreter where you installed `py-cord`; if you followed the Python 3.10 virtual environment steps above, run `.\venv\Scripts\python.exe scripts\v2_lab.py` instead of the last command. Enter the development token at the hidden prompt. Wait for `Lab bot ready`, then use `/v2status` in the lab `#bot-debug` channel. The bot should reply **V2 lab bot is online.** in a message visible only to you. Press **Ctrl+C** in the terminal to stop the bot.
+
+This runner validates the application and lab server before registering its single guild command. It does not load inherited cogs, open a database, send startup messages, or remove other registered commands. If `/v2status` does not appear, check that the lab application was installed with the `applications.commands` scope and that the runner printed `Lab bot ready`.
+
+## 4. Prepare the full inherited bot before running `main.py`
 
 - Install the remaining dependencies with `python -m pip install -r requirements.txt` in the same virtual environment. Use a separate MySQL/MariaDB database for development.
 - Copy `constants_example.py` to `constants.py`; the latter is already ignored by Git. Set the development token and database credentials locally. Set `BOT_ID = 1553807544013684807`, `LOUNGE = [1553806194257432726]`, and `DEBUG_CHANNEL_ID = 1553807230598647808` there. Do not commit `constants.py`.
