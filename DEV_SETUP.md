@@ -23,7 +23,7 @@ From a local terminal, clone the development branch and install Pycord in an iso
 On Linux/macOS:
 
 ```sh
-git clone --branch v2-development https://github.com/PuffRepo/200-Bot-V2.git
+git clone --branch v2-season-reset-preview https://github.com/PuffRepo/200-Bot-V2.git
 cd 200-Bot-V2
 python3.10 -m venv venv
 . venv/bin/activate
@@ -34,31 +34,57 @@ python scripts/discord_smoke.py
 On Windows PowerShell with Python 3.10 installed:
 
 ```powershell
-git clone --branch v2-development https://github.com/PuffRepo/200-Bot-V2.git
+git clone --branch v2-season-reset-preview https://github.com/PuffRepo/200-Bot-V2.git
 cd 200-Bot-V2
 py -3.10 -m venv venv
 .\venv\Scripts\python.exe -m pip install py-cord
 .\venv\Scripts\python.exe scripts\discord_smoke.py
 ```
 
-For an existing checkout, switch to `v2-development` and pull the latest commits before rerunning the check. Python 3.13 can run this check too; use a separate Python 3.10 environment when preparing the full inherited bot.
+For an existing checkout, switch to `v2-season-reset-preview` and pull the latest commits before rerunning the check. Python 3.13 can run this check too; use a separate Python 3.10 environment when preparing the full inherited bot.
 
 The script prompts for the development bot token without echoing it. It checks that the token belongs to application `1553807544013684807`, that the bot sees exactly the lab server, and that the debug text channel exists there. It then disconnects. This check does not load legacy cogs, touch the database, register commands, or send messages. If it fails, check the application and guild installation before proceeding.
 
-## 3. Test one V2 command in the lab
+## 3. Test V2 commands in the lab
 
-After the connection check passes, run the small V2 lab bot from your existing Windows checkout in PowerShell:
+After the connection check passes, run the V2 lab bot from your existing Windows checkout in PowerShell:
 
 ```powershell
 cd D:\Projects\200-Lounge\200-Bot-V2
-git switch v2-development
-git pull --ff-only origin v2-development
+git switch v2-season-reset-preview
+git pull --ff-only origin v2-season-reset-preview
 py -3.13 scripts\v2_lab.py
 ```
 
 Use the Python interpreter where you installed `py-cord`; if you followed the Python 3.10 virtual environment steps above, run `.\venv\Scripts\python.exe scripts\v2_lab.py` instead of the last command. Enter the development token at the hidden prompt. Wait for `Lab bot ready`, then use `/v2status` in the lab `#bot-debug` channel. The bot should reply **V2 lab bot is online.** in a message visible only to you. Press **Ctrl+C** in the terminal to stop the bot.
 
-This runner validates the application and lab server before registering its single guild command. It does not load inherited cogs, open a database, send startup messages, or remove other registered commands. If `/v2status` does not appear, check that the lab application was installed with the `applications.commands` scope and that the runner printed `Lab bot ready`.
+This runner validates the application and lab server before registering its lab guild commands. It never loads inherited cogs, opens the legacy database, sends startup messages, or removes other registered commands. It opens its own local SQLite lab database. If `/v2status` does not appear, check that the lab application was installed with the `applications.commands` scope and that the runner printed `Lab bot ready`.
+
+### V2 lab workflow trials
+
+The lab runner also registers `/v2verify`, `/v2name`, `/v2pending`, `/v2review`,
+`/v2strike`, and `/v2table` **only in the lab guild**. All commands run only in
+lab `#bot-debug`, use ephemeral responses, and keep records in the local
+`lab-v2.sqlite3` SQLite file (ignored by Git). You can set `V2_LAB_DB` to an
+absolute path to keep the lab database in another private location. Back up
+that file before replacing it. The bot must be removed from the live server
+before running this program; startup checks reject additional guilds.
+
+Suggested test sequence: run `/v2verify` using a test MKCentral profile URL;
+a staff member with **Manage Server** runs `/v2pending`, checks the claimant's
+identity independently, then runs `/v2review` with the request number,
+`approve: true`, and a unique `verified_name`. Try `/v2name` and review the
+request the same way. Staff can record a `/v2strike` against the test member's
+numeric Discord user ID. For `/v2table`, register 12 lab players, then submit
+12 name/score pairs in team order with scores totaling 984.
+
+These are **workflow trials**, not a live replacement. Verification does not
+call MKCentral to prove ownership or change Discord roles. Name approvals do
+not rename Discord members. Strikes record the proposed penalty without
+changing MMR or roles. Tables validate and retain inputs as pending; they do
+not calculate or award MMR, publish images, or update ranks. Staff must decide
+the season initialization policy and review scoring and moderation rules
+before live deployment. Do not install this runner in the live server.
 
 For the one-time S8 results archive, the owner may temporarily install this
 development bot in the live server. Stop the lab runner first. While the bot
