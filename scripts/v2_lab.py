@@ -1,4 +1,4 @@
-"""Run one guild-only V2 command without loading the inherited bot or database."""
+"""Run lab-only V2 commands, even if the archive bot remains in the live guild."""
 
 import asyncio
 import getpass
@@ -12,6 +12,14 @@ import discord
 
 from discord_smoke import APPLICATION_ID, DEBUG_CHANNEL_ID, LAB_GUILD_ID
 from v2.lab_store import LabError, LabStore
+
+# The archive bot may still be installed in this one known live guild.
+# Commands remain registered only in LAB_GUILD_ID and gated to #bot-debug.
+LIVE_ARCHIVE_GUILD_ID = 461383953937596416
+
+
+def valid_lab_guilds(guild_ids: set[int]) -> bool:
+    return LAB_GUILD_ID in guild_ids and guild_ids <= {LAB_GUILD_ID, LIVE_ARCHIVE_GUILD_ID}
 
 
 async def serve_lab(token: str) -> int:
@@ -128,8 +136,8 @@ async def serve_lab(token: str) -> int:
         if application.id != APPLICATION_ID:
             print(f"Wrong bot application: expected {APPLICATION_ID}, got {application.id}.")
             return 1
-        if {guild.id for guild in bot.guilds} != {LAB_GUILD_ID}:
-            print(f"Lab isolation check failed: expected only server {LAB_GUILD_ID}.")
+        if not valid_lab_guilds({guild.id for guild in bot.guilds}):
+            print("Lab isolation check failed: the bot must see the lab and at most the approved live archive server.")
             return 1
 
         guild = bot.get_guild(LAB_GUILD_ID)
