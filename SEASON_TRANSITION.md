@@ -124,7 +124,9 @@ py -3.13 -m scripts.archive_s8_results @archiveArgs
 ```
 
 The archiver reads only the selected channels, sends no messages, and saves
-result images locally with SHA-256 checksums. Keep the archive private.
+result images locally with SHA-256 checksums. It checks message attachments and
+embedded images hosted on Discord's image CDN. Other image hosts are recorded
+for review without downloading from them. Keep the archive private.
 `messages.jsonl` and `index.csv` retain original message links; `audit.json`
 lists the message count and ID range for **each channel**, table IDs found in
 another channel but missing from `tier-all-results`, unpaired or mirrored
@@ -132,6 +134,11 @@ posts, missing images, and gaps. Duplicate posts across tier channels and ALL
 may be normal; inspect their links before treating them as separate tables.
 An empty channel or an ID absent from ALL needs investigation. An interrupted
 run leaves partial files; use a **new output directory** for a complete retry.
+If `audit.json` reports many missing images but zero failed downloads, inspect
+one result and one MMR post using `--probe-message-id <MESSAGE_ID>` twice with
+only their channel ID. The probe prints attachment counts and embed image host
+names, reads only those two messages, and writes no files. If embed images are
+present, use the latest archiver and a new output directory for a complete run.
 Exit code `0` means no indexed issue was detected, `1` means review
 `audit.json`, and `2` means the archive failed. No exit code proves S8 is
 complete. Check the known last S8 mogi, **3390**, against the original posts
