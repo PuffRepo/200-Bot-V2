@@ -38,10 +38,10 @@ install it temporarily. Before installation, stop **every running instance**
 using its token, including `scripts/v2_lab.py`; do not start another instance
 until the archive finishes. **Never run the inherited `main.py` in the live
 server**: on startup it loads legacy cogs, posts a debug message, and leaves
-servers other than its configured lounge. Run only
-`scripts.archive_s8_results` during this temporary installation. Neither
-`discord_smoke.py` nor `v2_lab.py` can pass their lab-only checks while the
-development bot is installed in both servers.
+servers other than its configured lounge. During an archive run, start only
+`scripts.archive_s8_results`. The standalone `discord_smoke.py` still requires
+lab-only membership; the updated `v2_lab.py` accepts the lab and the one known
+live archive server, registering its commands only in the lab.
 
 In Discord Developer Mode, copy the **live 200 Lounge server ID** and verify
 the names and IDs of its results channels. These IDs come from the old
@@ -144,9 +144,10 @@ Exit code `0` means no indexed issue was detected, `1` means review
 complete. Check the known last S8 mogi, **3390**, against the original posts
 and investigate any missing range or channel before constructing CSVs.
 
-After saving and reviewing the archive, have the owner remove the V2 Dev bot
-from the live server and remove any temporary bot-specific channel overrides.
-Verify that it remains in the lab server alone before restarting a lab runner.
+After saving and reviewing the archive, remove temporary bot-specific channel
+overrides that are no longer needed. The owner may leave V2 Dev installed in
+the live server while using the updated lab runner; its commands are restricted
+to lab `#bot-debug`. Remove the live installation when it is no longer useful.
 A separate existing bot under your control can also read the channels; use
 that bot's application ID and token, with the same limited permissions.
 

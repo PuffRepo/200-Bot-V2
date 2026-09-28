@@ -14,7 +14,7 @@ Use the separate development application and lab server for all tests. The IDs b
 
 In the [Discord Developer Portal](https://discord.com/developers/applications), make sure the development application has a bot user. On **Bot → Privileged Gateway Intents**, enable **Guild Members** and **Message Content** before running the inherited `main.py`; that code requests both intents. The smoke check below uses only the Guilds intent.
 
-On **Installation**, use **Guild Install** with the `bot` and `applications.commands` scopes. Start with permissions to view channels, send messages, embed links, read message history, and add reactions. Add moderation permissions only as reviewed features require them. Install this development bot only in the lab server, and keep its token in a local secret manager. Never put the token in Git, an issue, a PR, or chat.
+On **Installation**, use **Guild Install** with the `bot` and `applications.commands` scopes. Start with permissions to view channels, send messages, embed links, read message history, and add reactions. Add moderation permissions only as reviewed features require them. Use the lab server for V2 commands; the dev bot may also remain in the one approved live server for the read-only archive. Keep its token in a local secret manager. Never put the token in Git, an issue, a PR, or chat.
 
 ## 2. Run the lab connection check
 
@@ -43,7 +43,7 @@ py -3.10 -m venv venv
 
 For an existing checkout, switch to `v2-season-reset-preview` and pull the latest commits before rerunning the check. Python 3.13 can run this check too; use a separate Python 3.10 environment when preparing the full inherited bot.
 
-The script prompts for the development bot token without echoing it. It checks that the token belongs to application `1553807544013684807`, that the bot sees exactly the lab server, and that the debug text channel exists there. It then disconnects. This check does not load legacy cogs, touch the database, register commands, or send messages. If it fails, check the application and guild installation before proceeding.
+The script prompts for the development bot token without echoing it. It checks that the token belongs to application `1553807544013684807`, that the bot sees exactly the lab server, and that the debug text channel exists there. It then disconnects. This check does not load legacy cogs, touch the database, register commands, or send messages. **Skip this smoke check while the bot remains in the live archive server**; the V2 lab runner below accepts both known guilds safely.
 
 ## 3. Test V2 commands in the lab
 
@@ -67,8 +67,9 @@ The lab runner also registers `/v2verify`, `/v2name`, `/v2pending`, `/v2review`,
 lab `#bot-debug`, use ephemeral responses, and keep records in the local
 `lab-v2.sqlite3` SQLite file (ignored by Git). You can set `V2_LAB_DB` to an
 absolute path to keep the lab database in another private location. Back up
-that file before replacing it. The bot must be removed from the live server
-before running this program; startup checks reject additional guilds.
+that file before replacing it. The runner accepts only the lab guild and the
+approved live archive guild. It does not register commands in the live guild or
+send startup messages there.
 
 Suggested test sequence: run `/v2verify` using a test MKCentral profile URL;
 a staff member with **Manage Server** runs `/v2pending`, checks the claimant's
@@ -84,13 +85,15 @@ not rename Discord members. Strikes record the proposed penalty without
 changing MMR or roles. Tables validate and retain inputs as pending; they do
 not calculate or award MMR, publish images, or update ranks. Staff must decide
 the season initialization policy and review scoring and moderation rules
-before live deployment. Do not install this runner in the live server.
+before live deployment. Leaving the dev bot installed in the live server does
+not turn these lab commands into a live deployment.
 
-For the one-time S8 results archive, the owner may temporarily install this
-development bot in the live server. Stop the lab runner first. While the bot
-belongs to both servers, the lab-only smoke check and V2 lab runner reject the
-extra server. Follow [the live archive procedure](SEASON_TRANSITION.md#temporarily-archive-the-live-results-channels): run only its read-only archiver,
-never `main.py`, then remove the live installation before resuming lab tests.
+For the S8 results archive, the owner may temporarily keep this development bot
+installed in the live server while running the V2 lab runner. Do not run the
+archiver and lab runner simultaneously with the same token. The standalone
+smoke check still requires lab-only membership. Follow [the live archive
+procedure](SEASON_TRANSITION.md#temporarily-archive-the-live-results-channels)
+for future archive runs; never run inherited `main.py` in the live server.
 
 ## 4. Prepare the full inherited bot before running `main.py`
 
