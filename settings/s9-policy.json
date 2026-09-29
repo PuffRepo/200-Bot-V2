@@ -1,0 +1,19 @@
+{
+  "season": "S9",
+  "strike_reset": true,
+  "strike_reset_status": "confirmed",
+  "rating_reset": "pending",
+  "placement_policy": "pending",
+  "rank_status": "provisional",
+  "ranks": [
+    {"name": "Iron", "minimum": 0},
+    {"name": "Bronze", "minimum": 1500},
+    {"name": "Silver", "minimum": 3000},
+    {"name": "Gold", "minimum": 4500},
+    {"name": "Platinum", "minimum": 6000},
+    {"name": "Ruby", "minimum": 7500},
+    {"name": "Diamond", "minimum": 9000},
+    {"name": "Master", "minimum": 10500},
+    {"name": "Grandmaster", "minimum": 12000}
+  ]
+}
