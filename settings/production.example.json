@@ -1,0 +1,69 @@
+{
+  "_notice": "Disabled preparation template. Tier IDs verified against 2026-10-12 inventory. Fill remaining roles/workflow channels before production validation; do not overwrite an existing private configuration.",
+  "enabled": false,
+  "guild_id": "461383953937596416",
+  "application_id": "1553807544013684807",
+  "season": "S9",
+  "policy_file": "settings/s9-policy.json",
+  "database_path": "private/production.sqlite3",
+  "channels": {
+    "debug": null,
+    "verification_requests": null,
+    "verification_log": null,
+    "name_requests": null,
+    "strikes_log": null,
+    "support": null
+  },
+  "tiers": {
+    "tier-all": {
+      "submission_channel_id": "1559317469871738990",
+      "results_channel_id": "1010600464003387542"
+    },
+    "tier-c": {
+      "submission_channel_id": "1559317335599349790",
+      "results_channel_id": "1010600418524532889"
+    },
+    "tier-b": {
+      "submission_channel_id": "1559317262471663666",
+      "results_channel_id": "1010600376187244655"
+    },
+    "tier-a": {
+      "submission_channel_id": "1559317213989568643",
+      "results_channel_id": "1010600237880053800"
+    }
+  },
+  "roles": {
+    "reporter": null,
+    "staff": [],
+    "placement": null,
+    "verified_optional": null,
+    "chat_restricted": null,
+    "loungeless": null,
+    "ranks": {
+      "Iron": null,
+      "Bronze": null,
+      "Silver": null,
+      "Gold": null,
+      "Platinum": null,
+      "Emerald": null,
+      "Ruby": null,
+      "Diamond": null,
+      "Master": null,
+      "Grandmaster": null
+    }
+  },
+  "restore_original_policy_reference": {
+    "strike_expiry_days": 30,
+    "strike_limit": 3,
+    "restriction_days_per_repeat_offense": 7,
+    "name_change_cooldown_days": 60,
+    "staff_confirmed": false
+  },
+  "runtime": {
+    "token_environment_variable": "DISCORD_BOT_TOKEN",
+    "single_writer_process": true,
+    "backup_location": null,
+    "backup_schedule": null,
+    "operator_contact": null
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "_notice": "Lab-only member effects. Copy to settings/lab-member-effects.private.json and fill role/results IDs; never use production IDs here.",
+  "enabled": false,
+  "guild_id": "1553806194257432726",
+  "application_id": "1553807544013684807",
+  "season": "S9",
+  "policy_file": "settings/s9-policy.json",
+  "database_path": "lab-v2.sqlite3",
+  "channels": {
+    "debug": "1553807230598647808",
+    "verification_requests": "1553807230598647808",
+    "verification_log": "1553807230598647808",
+    "name_requests": "1553807230598647808",
+    "strikes_log": "1553807230598647808",
+    "support": "1553807230598647808"
+  },
+  "tiers": {
+    "tier-all": {
+      "submission_channel_id": "1553807230598647808",
+      "results_channel_id": null
+    },
+    "tier-c": {
+      "submission_channel_id": "1553807230598647808",
+      "results_channel_id": null
+    }
+  },
+  "roles": {
+    "reporter": null,
+    "staff": [],
+    "placement": null,
+    "verified_optional": null,
+    "chat_restricted": null,
+    "loungeless": null,
+    "ranks": {
+      "Iron": null,
+      "Bronze": null,
+      "Silver": null,
+      "Gold": null,
+      "Platinum": null,
+      "Emerald": null,
+      "Ruby": null,
+      "Diamond": null,
+      "Master": null,
+      "Grandmaster": null
+    }
+  },
+  "restore_original_policy_reference": {
+    "strike_expiry_days": 30,
+    "strike_limit": 3,
+    "restriction_days_per_repeat_offense": 7,
+    "name_change_cooldown_days": 60,
+    "staff_confirmed": false
+  },
+  "runtime": {
+    "token_environment_variable": "DISCORD_BOT_TOKEN",
+    "single_writer_process": true,
+    "backup_location": null,
+    "backup_schedule": null,
+    "operator_contact": null
+  }
+}

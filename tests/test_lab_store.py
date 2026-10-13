@@ -18,7 +18,7 @@ class LabStoreTest(unittest.TestCase):
         with self.assertRaises(LabError):
             self.db.review(request, 101, True, 'First')
         with self.assertRaises(LabError):
-            self.db.review(request, 202, True, 'bad name!')
+            self.db.review(request, 202, True, 'bad\nname')
         with self.db.connect() as db:
             self.assertEqual(db.execute('SELECT status FROM requests WHERE id=?',(request,)).fetchone()[0], 'pending')
         self.assertEqual(self.db.review(request,202,True,'First'), 'approved')
@@ -50,6 +50,44 @@ class LabStoreTest(unittest.TestCase):
                              ['user_id','mkc_id','name','verified_by','verified_at'])
         with self.assertRaises(LabError):
             parse_scores(scores.replace('Second 82','Second 81'),2)
+
+    def test_mmr_deduction_proposal_has_no_strike_or_rating_side_effect(self):
+        req = self.db.request_verify(101, 'https://mkcentral.com/registry/players/profile?id=101')
+        self.db.review(req, 999, True, 'First')
+        with self.assertRaises(LabError):
+            self.db.propose_mmr_deduction(999, 101, 0, 'test')
+        with self.assertRaises(LabError):
+            self.db.propose_mmr_deduction(999, 404, 50, 'test')
+        adjustment_id = self.db.propose_mmr_deduction(999, 101, 50, 'Test adjustment')
+        with self.db.connect() as db:
+            record = db.execute('SELECT amount,reason,status FROM mmr_adjustments WHERE id=?',
+                                (adjustment_id,)).fetchone()
+            self.assertEqual(tuple(record), (-50, 'Test adjustment', 'proposed'))
+            self.assertEqual(db.execute('SELECT count(*) FROM strikes').fetchone()[0], 0)
+
+    def test_table_review_requires_other_staff_and_prevents_duplicate(self):
+        for i in range(12):
+            req = self.db.request_verify(100+i, f'https://mkcentral.com/registry/players/profile?id={100+i}')
+            self.db.review(req, 999, True, f'LAB{i:02d}')
+        scores = ' '.join(f'LAB{i:02d} 82' for i in range(12))
+        table_id = self.db.submit_table(999, 2, scores)
+        with self.assertRaises(LabError):
+            self.db.submit_table(888, 2, scores.lower())
+        with self.assertRaises(LabError):
+            self.db.review_table(table_id, 999, True)
+        self.assertEqual(self.db.review_table(table_id, 888, True), 'validated')
+        with self.assertRaises(LabError):
+            self.db.review_table(table_id, 777, False)
+        with self.db.connect() as db:
+            row = db.execute('SELECT status FROM tables WHERE id=?',(table_id,)).fetchone()
+            review = db.execute('SELECT reviewer_id,decision FROM table_reviews WHERE table_id=?',
+                                (table_id,)).fetchone()
+            self.assertEqual(row[0], 'validated')
+            self.assertEqual(tuple(review), (888, 'validated'))
+            self.assertEqual(db.execute('SELECT count(*) FROM mmr_adjustments').fetchone()[0], 0)
+        rejected_id = self.db.submit_table(999, 2, scores.replace('LAB00 82 LAB01 82', 'LAB00 83 LAB01 81'))
+        self.assertEqual(self.db.review_table(rejected_id, 888, False), 'rejected')
+        self.assertIsInstance(self.db.submit_table(999, 2, scores.replace('LAB00 82 LAB01 82', 'LAB00 83 LAB01 81')), int)
 
 
 if __name__ == '__main__':

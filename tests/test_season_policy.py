@@ -35,7 +35,7 @@ class SeasonPolicyTest(unittest.TestCase):
             self.assertEqual(report['strike_history_rows_to_preserve'], 1)
             self.assertEqual(report['proposed_new_season_strikes'], 0)
             self.assertFalse(report['apply_ready'])
-            self.assertEqual(report['rating_reset'], 'pending')
+            self.assertEqual(report['rating_reset'], 'full')
             self.assertEqual(path.read_bytes(), before)
 
     def test_missing_database_is_not_created(self):
