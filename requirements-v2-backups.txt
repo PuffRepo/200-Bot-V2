@@ -1,0 +1,2 @@
+-r requirements-v2-lab.txt
+boto3>=1.35,<2
