@@ -116,18 +116,44 @@ class RuntimeCommandsTest(unittest.IsolatedAsyncioTestCase):
             with patch.object(MemberSync,'drain',new=AsyncMock(return_value=[])):
                 self.assertIn('1 requested member(s)',await sync([101]))
         await self.construct('production',exercise)
+
+    async def test_stats_default_self_filters_empty_and_access(self):
+        async def exercise(bot,runtime):
+            command=next(c for c in bot.pending_application_commands if c.name=='stats')
+            closure=dict(zip(command.callback.__code__.co_freevars,(c.cell_contents for c in command.callback.__closure__)))
+            store=closure['store']
+            with store.connect() as db:
+                db.execute("INSERT INTO players(user_id,mkc_id,name,verified_by) VALUES (123,123,'国際 ★',999)")
+            actor=SimpleNamespace(id=123,roles=[],guild_permissions=SimpleNamespace(manage_guild=False))
+            ctx=SimpleNamespace(author=actor,guild_id=runtime['guild_id'],channel_id=runtime['channels']['debug'],
+                respond=AsyncMock(),defer=AsyncMock(),followup=SimpleNamespace(send=AsyncMock()))
+            await command.callback(ctx)
+            embed=ctx.followup.send.call_args.kwargs['embed']
+            self.assertEqual(embed.title,'S9 Player Statistics')
+            self.assertIn('No matching tables',[field.name for field in embed.fields])
+            self.assertIn('Unplaced',embed.fields[0].value)
+            await command.callback(ctx,player='国際 ★',tier='c',last=10)
+            self.assertIn('tier-c',ctx.followup.send.call_args.kwargs['embed'].footer.text)
+            await command.callback(ctx,last=0)
+            self.assertIn('between 1 and 1000',ctx.followup.send.call_args.args[0])
+            await command.callback(ctx,member=SimpleNamespace(id=123),player='国際 ★')
+            self.assertIn('not both',ctx.followup.send.call_args.args[0])
+            actor.roles=[SimpleNamespace(id=runtime['roles']['loungeless'])]
+            await command.callback(ctx)
+            ctx.respond.assert_awaited_once()
+        await self.construct('production',exercise)
     async def test_lab_commands_construct_without_connection(self):
         commands=await self.construct('lab')
         self.assertTrue({'v2table','v2verify','v2unstrike','v2mmrdeduct','v2fixroles'}<=commands)
     async def test_production_command_names_construct_without_connection(self):
         commands=await self.construct('production')
-        self.assertTrue({'table','verify','unstrike','mmr_penalty','reduce_loss','fix_roles','strikes','mmr'}<=commands)
+        self.assertTrue({'table','verify','unstrike','mmr_penalty','reduce_loss','stats','fix_roles','strikes','mmr'}<=commands)
         self.assertFalse(any(name.startswith('v2') for name in commands))
     async def test_real_member_options_and_new_ui_components(self):
         import discord
         await self.construct('lab')
         commands={c.name:c for c in self.built_bot.pending_application_commands}
-        for name in ('v2strike','v2mmrdeduct','v2reduceloss','v2unstrike','v2setname','v2fixroles','v2strikes'):
+        for name in ('v2strike','v2mmrdeduct','v2stats','v2reduceloss','v2unstrike','v2setname','v2fixroles','v2strikes'):
             option=next(o for o in commands[name].options if o.name=='member')
             self.assertEqual(option.input_type,discord.SlashCommandOptionType.user)
         formats=next(o for o in commands['v2table'].options if o.name=='format_size')

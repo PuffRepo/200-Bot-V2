@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from v2.table_publication import TablePublisher
 from v2.moderation import Moderation
 from v2.loss_reductions import LossReductions
+from v2.statistics import snapshot as statistics_snapshot, player_statistics
 from v2.member_sync import MemberSync
 from v2.runtime_config import load_runtime
 from v2.lab_store import player_name
@@ -511,6 +512,47 @@ async def serve_lab(token: str, runtime=None) -> int:
             await interaction.followup.send(f"Strike #{value} removed; refund {result['delta']:+d}. History retained. {effects}",ephemeral=True)
         await ctx.followup.send('Choose the strike to remove. The 24-hour and no-self-removal rules still apply.' if options else 'This member has no active season strikes.',view=ChoiceView(ctx.author.id,ui_reporter if runtime else ui_staff,options,choose) if options else None,ephemeral=True)
 
+    @bot.slash_command(name=command_name('v2stats'),description='S9 player statistics from applied V2 tables',guild_ids=[LAB_GUILD_ID])
+    async def v2stats(ctx:discord.ApplicationContext,member:discord.Member=None,player:str=None,
+                      tier:discord.Option(str,choices=['all','c','b','a'])=None,
+                      mogi_format:discord.Option(int,choices=[1,2,3,4])=None,last:int=None):
+        if not lab_channel(ctx) or restricted(ctx.author):
+            return await ctx.respond('Use a configured Lounge channel with unrestricted access.',ephemeral=True)
+        await ctx.defer(ephemeral=True)
+        try:
+            if member is not None and player is not None:raise LabError('Choose a member or an exact player name, not both.')
+            def load():
+                with store.connect() as db:
+                    db.execute('BEGIN')
+                    data=statistics_snapshot(db)
+                    uid=member.id if member else ctx.author.id
+                    if player is not None:
+                        found=next((p for p in data['players'] if p['name']==player),None)
+                        if found is None:raise LabError('Exact player name not found; try the member picker.')
+                        uid=found['user_id']
+                    return player_statistics(data,uid,tier='tier-'+tier if tier else None,format_size=mogi_format,last=last)
+            result=await asyncio.to_thread(load)
+        except LabError as error:return await reply_error(ctx,error)
+        p,s=result['player'],result['summary']
+        def value(number):return '—' if number is None else f'{number:,.2f}'.rstrip('0').rstrip('.')
+        embed=discord.Embed(title='S9 Player Statistics',description=discord.utils.escape_markdown(p['name']),color=discord.Color.blurple())
+        for label,text in (
+            ('Current MMR / Rank',f"{p['mmr'] if p['mmr'] is not None else 'Unplaced'} / {p['rank']}"),
+            ('Leaderboard position',str(p['position']) if p['position'] is not None else 'Unplaced'),
+            ('Recorded peak MMR',value(p['peak_mmr'])),
+            ('Tables / Placements',f"{s['tables']} / {s['placements']}"),
+            ('MMR gains / losses / ties',f"{s['gains']} / {s['losses']} / {s['ties']}"),
+            ('MMR gain rate',value(s['gain_rate'])+'%' if s['gain_rate'] is not None else '—'),
+            ('Average / Top score',f"{value(s['average_score'])} / {value(s['top_score'])}"),
+            ('Partner score average',value(s['partner_average'])),
+            ('Largest gain / loss',f"{s['largest_gain']:+d} / {s['largest_loss']:+d}"),
+            ('Table MMR / Refunds included',f"{s['net_table_delta']:+d} / +{s['refunds']}"),
+            ('Last 10 selected tables',f"{s['last_ten']['gains']}-{s['last_ten']['losses']}-{s['last_ten']['ties']} | {s['last_ten']['delta']:+d} MMR")):
+            embed.add_field(name=label,value=text,inline=True)
+        embed.set_footer(text=f"Applied S9 tables only | {'tier-'+tier if tier else 'all tiers'} | {str(mogi_format)+'-player teams' if mogi_format else 'all formats'} | {str(last)+' latest' if last else 'all tables'} | Placements excluded from gain rate; penalties excluded from table totals.")
+        if not s['tables']:embed.add_field(name='No matching tables',value='No applied S9 tables match these filters. Current MMR and rank are still shown.',inline=False)
+        await ctx.followup.send(embed=embed,ephemeral=True)
+
     @bot.slash_command(name=command_name("v2mmr"),description="See your MMR and rank",guild_ids=[LAB_GUILD_ID])
     async def v2mmr(ctx:discord.ApplicationContext):
         if not lab_channel(ctx):return await ctx.respond('Use a configured Lounge channel.',ephemeral=True)
@@ -804,7 +846,7 @@ async def serve_lab(token: str, runtime=None) -> int:
         try:
             await bot.sync_commands(
                 commands=[v2status, v2verify, v2name, v2pending, v2review, v2strike,
-                          v2table, v2mmrdeduct, v2reduceloss, v2tables, v2tableview,
+                          v2table, v2mmrdeduct, v2reduceloss, v2stats, v2tables, v2tableview,
                           v2mmrpreview, v2strikes, *([] if production else [v2seasonstart]), v2ratings,
                           v2ratingpreview, *([] if production else [v2fixturecase]),
                           v2tableflag, v2flagresolve, v2reversalrequest, v2reversalpreview,
