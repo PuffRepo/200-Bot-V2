@@ -39,8 +39,22 @@ class StatsGraphTest(unittest.TestCase):
             with self.subTest(tables=len(history)):
                 png=render_stats_graph(result(history,history[-1]['after']))
                 with Image.open(BytesIO(png)) as image:
-                    self.assertEqual(image.size,(1100,600));self.assertEqual(image.format,'PNG');image.verify()
+                    self.assertGreater(image.width,500);self.assertGreater(image.height,350);self.assertEqual(image.format,'PNG');image.verify()
 
     def test_embed_score_averages_floor_instead_of_round_up(self):
         for value,expected in [(82.999,'82.99'),(82,'82.00'),(0,'0.00'),(1.15,'1.15'),(None,'—')]:
             self.assertEqual(format_score_average(value),expected)
+
+    def test_legacy_axes_labels_grid_and_real_match_count(self):
+        from unittest.mock import patch
+        from matplotlib.axes import Axes
+        original_plot=Axes.plot
+        labels=[];calls=[]
+        def plot(axes,*args,**kwargs):
+            calls.append((args,kwargs));return original_plot(axes,*args,**kwargs)
+        with patch.object(Axes,'plot',new=plot),patch.object(Axes,'set_xlabel',autospec=True,side_effect=lambda ax,label,*a,**k:labels.append(label)),patch.object(Axes,'set_ylabel',autospec=True,side_effect=lambda ax,label,*a,**k:labels.append(label)):
+            render_stats_graph(result([event(1,6000,5800),event(2,5900,6100)],6100))
+        self.assertEqual(labels,['Matches played','MMR'])
+        self.assertEqual(calls[0][0][0],[0,1,1,2,2])
+        self.assertTrue(any(kwargs.get('color')=='snow' and kwargs.get('linewidth')==1 for _,kwargs in calls))
+        self.assertTrue(any(kwargs.get('linestyle')=='--' for _,kwargs in calls))

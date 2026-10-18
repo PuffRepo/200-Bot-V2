@@ -4,10 +4,19 @@ Review branch: `codex/stats-history-graph-review`, based on bot release 8bcc31c.
 It does not include the separate manual bulk-country scripts or any automatic
 country apply. No production data or deployment was changed for this patch.
 
-/stats now embeds an attached PNG MMR graph, generated locally using the existing
-Pillow dependency. Like the legacy graph, it has a dark blue background, MMR
-axes and rank-colored bands. It uses all ten approved S9 ranks and requires no
-external chart service, Matplotlib dependency, shared output file or bot startup.
+/stats now embeds an attached PNG MMR graph using the original bot's Matplotlib
+format from plotting/plotting.py and its actual plotting/lounge_style.mplstyle.
+It preserves the original 6.4-by-4.8-inch proportions, dark blue background,
+thin snow-white line, dotted grid, rank-colored bands, shading below the curve,
+and Matches played / MMR axes. The added title, footer and side rank labels from
+the initial V2 design are removed. Known legacy rank colours are retained;
+Emerald and Ruby use the approved S9 colours and all thresholds remain S9.
+
+Matplotlib is added to requirements-v2-lab.txt (also included by the backup
+requirements). Install requirements-v2-backups.txt before local tests/release.
+Rendering uses a headless canvas, per-request in-memory figures and a lock
+around the original style context for concurrent commands. No external chart
+service, shared graph output file or bot startup is required.
 
 The graph follows the command's member/name, tier, format and last-N filters.
 It sorts selected applied events by immutable application sequence and plots
@@ -16,7 +25,10 @@ rating history. Placement begins at its assigned rating, without a fictitious
 zero-MMR point. Reversed tables are already excluded by the statistics snapshot.
 
 Solid segments represent table changes. Dashed segments identify gaps between
-selected table balances and the separately labeled current MMR point. Those
+selected table balances and the current MMR balance. A compact legend appears
+only when those gaps occur; ordinary uninterrupted history retains the original
+unadorned graph format. Before/current observations share the same match index
+rather than inventing additional games. Those
 gaps can include unselected tables, refunds or penalties. A reduced loss retains
 its original table-after balance; its refund appears in subsequent recorded
 balances/current MMR. Refunds are not counted twice or retroactively backdated.

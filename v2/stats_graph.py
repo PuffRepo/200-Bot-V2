@@ -1,11 +1,25 @@
 """Local S9 MMR graph from recorded balances, never cumulative filtered deltas."""
 from io import BytesIO
-import math
 from decimal import Decimal, ROUND_FLOOR
-from PIL import Image,ImageDraw
-from v2.table_image import font,RANK_COLORS
+from threading import RLock
+import os
+from tempfile import gettempdir
+from pathlib import Path
+
+# Keep Matplotlib's font cache in a writable temporary location in Railway.
+os.environ.setdefault('MPLCONFIGDIR',str(Path(gettempdir())/'200-lounge-matplotlib'))
+from matplotlib import rc_context,rc_params_from_file
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
+from matplotlib.ticker import MaxNLocator
 from v2.season_policy import load_policy
 from v2.lab_ratings import POLICY_PATH
+
+ROOT=Path(__file__).resolve().parents[1]
+RENDER_LOCK=RLock()
+LEGACY_COLORS={'Iron':'#817876','Bronze':'#E67E22','Silver':'#7D8396',
+               'Gold':'#F1C40F','Platinum':'#3FABB8','Emerald':'#50c878',
+               'Ruby':'#ff5575','Diamond':'#9CCBD6','Master':'#0E0B0B','Grandmaster':'#A3022C'}
 
 
 def format_score_average(value):
@@ -31,44 +45,46 @@ def graph_points(result):
 def render_stats_graph(result):
     points=graph_points(result)
     if not points:return None
-    image=Image.new('RGB',(1100,600),'#0a2d61');draw=ImageDraw.Draw(image)
-    draw.text((40,24),'MMR History | S9',font=font(29,bold=True),fill='white')
-    draw.text((40,67),'Recorded balances at selected applied tables',font=font(19),fill='#dddddd')
-    left,top,right,bottom=90,108,945,470
-    values=[p['mmr'] for p in points]
-    span=max(values)-min(values);padding=max(100,span*.12)
-    low=max(0,math.floor(min(values)-padding));high=math.ceil(max(values)+padding)
-    def y(value):return bottom-(value-low)*(bottom-top)/(high-low)
-    ranks=load_policy(POLICY_PATH)['ranks']
-    for i,rank in enumerate(ranks):
-        minimum=rank['minimum'];maximum=ranks[i+1]['minimum'] if i+1<len(ranks) else high
-        a,b=max(low,minimum),min(high,maximum)
-        if a>=b:continue
-        color=RANK_COLORS[rank['name']]
-        rgb=tuple(round(int(color[j:j+2],16)*.48) for j in (1,3,5))
-        draw.rectangle((left,y(b),right,y(a)),fill=rgb)
-        draw.text((right+10,(y(a)+y(b))/2),rank['name'],font=font(14),fill='white',anchor='lm')
-    for i in range(6):
-        value=low+(high-low)*i/5;yy=y(value)
-        draw.line((left,yy,right,yy),fill='#8396ad',width=1)
-        draw.text((left-12,yy),f'{round(value):,}',font=font(16),fill='white',anchor='rm')
-    coords=[(left+(right-left)*i/max(1,len(points)-1),y(p['mmr'])) for i,p in enumerate(points)]
-    for i in range(1,len(points)):
-        start,end=coords[i-1],coords[i]
-        if points[i]['connection']=='table':draw.line((*start,*end),fill='white',width=3)
-        else:
-            length=math.dist(start,end);steps=max(1,math.ceil(length/9))
-            for step in range(0,steps,2):
-                a=step/steps;b=min(1,(step+1)/steps)
-                draw.line((start[0]+(end[0]-start[0])*a,start[1]+(end[1]-start[1])*a,
-                           start[0]+(end[0]-start[0])*b,start[1]+(end[1]-start[1])*b),fill='#ffcf70',width=2)
-    for point,(xx,yy) in zip(points,coords):
-        if len(points)<=80 or point['kind']=='current':
-            color='#ffcf70' if point['kind']=='current' else 'white'
-            draw.ellipse((xx-4,yy-4,xx+4,yy+4),fill=color)
-    tick_indices=sorted({round(i*(len(points)-1)/min(5,len(points)-1)) for i in range(min(5,len(points)-1)+1)}) if len(points)>1 else [0]
-    for index in tick_indices:
-        draw.text((coords[index][0],bottom+18),points[index]['label'],font=font(14),fill='white',anchor='mt')
-    draw.text((40,535),'Solid: table MMR | Dashed: gaps/current balance (other tables, refunds or penalties)',font=font(18),fill='white')
-    draw.text((40,565),'Original table balances stay unchanged; the current point includes posted adjustments.',font=font(17),fill='#dddddd')
-    output=BytesIO();image.save(output,format='PNG');return output.getvalue()
+    # Before/current observations share a match index rather than inventing games.
+    xs=[];played=0
+    for point in points:
+        if point['kind']=='table':played+=1
+        xs.append(played)
+    values=[point['mmr'] for point in points]
+    style=rc_params_from_file(ROOT/'plotting/lounge_style.mplstyle',use_default_template=False)
+    # rc_context uses global Matplotlib settings: serialize it across command threads.
+    with RENDER_LOCK,rc_context(style):
+        figure=Figure(figsize=(6.4,4.8),dpi=100)
+        FigureCanvasAgg(figure)
+        axes=figure.subplots()
+        try:
+            # This first pass sets the same automatic limits as the original plot.
+            axes.plot(xs,values,color='snow',linewidth=0,alpha=0)
+            xmin,xmax=axes.get_xlim();ymin,ymax=axes.get_ylim()
+            ranks=load_policy(POLICY_PATH)['ranks']
+            for i,rank in enumerate(ranks):
+                lower=max(ymin,rank['minimum'])
+                upper=min(ymax,ranks[i+1]['minimum'] if i+1<len(ranks) else ymax)
+                if lower<upper:
+                    axes.fill_between(xs if len(set(xs))>1 else [xmin,xmax],lower,upper,color=LEGACY_COLORS[rank['name']])
+            axes.fill_between(xs,ymin,values,color='#212121',alpha=.3)
+            has_gap=False
+            for i in range(1,len(points)):
+                if points[i]['connection']=='table':
+                    axes.plot(xs[i-1:i+1],values[i-1:i+1],color='snow',linewidth=1.0)
+                elif values[i]!=values[i-1]:
+                    axes.plot(xs[i-1:i+1],values[i-1:i+1],color='#ffcf70',linewidth=1.0,
+                              linestyle='--',label='Other activity / current MMR' if not has_gap else None)
+                    has_gap=True
+            if len(set(zip(xs,values)))==1:
+                axes.plot(xs[-1],values[-1],marker='o',color='snow',markersize=3)
+            if has_gap:
+                axes.legend(loc='best',fontsize=8,facecolor='#0a2d61',labelcolor='white')
+            axes.set_xlim(xmin,xmax);axes.set_ylim(ymin,ymax)
+            axes.set_xlabel('Matches played');axes.set_ylabel('MMR')
+            axes.xaxis.set_major_locator(MaxNLocator(integer=True))
+            axes.grid(True,which='both',axis='both',color='snow',linestyle=':')
+            output=BytesIO();figure.savefig(output,format='png',bbox_inches='tight')
+            return output.getvalue()
+        finally:
+            figure.clear()
