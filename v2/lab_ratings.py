@@ -75,6 +75,25 @@ class LabRatings:
                     request_id INTEGER NOT NULL UNIQUE REFERENCES table_reversal_requests(id),
                     actor_id INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS loss_reductions (
+                    table_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                    actor_id INTEGER NOT NULL, reason TEXT NOT NULL,
+                    numerator INTEGER NOT NULL, denominator INTEGER NOT NULL,
+                    original_delta INTEGER NOT NULL CHECK(original_delta<0),
+                    retained_delta INTEGER NOT NULL,
+                    adjustment_id INTEGER NOT NULL UNIQUE,
+                    boundary_sequence INTEGER NOT NULL, digest TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(table_id,user_id),
+                    FOREIGN KEY(table_id,user_id) REFERENCES rating_events(table_id,user_id)
+                );
+                CREATE VIEW IF NOT EXISTS effective_rating_events AS
+                    SELECT e.*, a.season, t.status,
+                        COALESCE(r.retained_delta,e.applied_delta) AS effective_delta,
+                        COALESCE(r.retained_delta-e.applied_delta,0) AS refund
+                    FROM rating_events e JOIN rating_applications a ON a.table_id=e.table_id
+                    JOIN tables t ON t.id=e.table_id
+                    LEFT JOIN loss_reductions r ON r.table_id=e.table_id AND r.user_id=e.user_id;
             ''')
 
         with store.connect() as db:
@@ -181,6 +200,8 @@ class LabRatings:
         latest=db.execute("SELECT s.table_id FROM application_sequence s JOIN tables t ON t.id=s.table_id WHERE t.season=? AND t.status='applied' ORDER BY s.sequence DESC LIMIT 1",(season,)).fetchone()
         if latest is None or latest[0]!=table_id:
             raise LabError('Reverse later applied tables first, newest application first. Earlier changes cannot safely bypass dependent tables.')
+        if db.execute('SELECT 1 FROM loss_reductions r JOIN tables t ON t.id=r.table_id WHERE t.season=? AND r.retained_delta>r.original_delta AND r.boundary_sequence >= (SELECT sequence FROM application_sequence WHERE table_id=?)', (season,table_id)).fetchone():
+            raise LabError('Cannot reverse across a recorded loss reduction. Its accounting boundary requires a separately audited correction; no balances were changed.')
         events=db.execute('SELECT * FROM rating_events WHERE table_id=? ORDER BY user_id',(table_id,)).fetchall()
         if len(events)!=12:
             raise LabError('The original ledger must contain exactly 12 events.')
@@ -258,6 +279,22 @@ class LabRatings:
             season=db.execute("SELECT value FROM lab_settings WHERE key='current_season'").fetchone()[0]
             rows=db.execute('SELECT p.user_id,p.name,r.mmr FROM players p LEFT JOIN season_ratings r ON r.user_id=p.user_id AND r.season=? ORDER BY p.name',(season,)).fetchall()
             return season,[{'user_id':r['user_id'],'name':r['name'],'mmr':r['mmr'],'rank':rank_for_mmr(self.policy,r['mmr'])} for r in rows]
+
+    def player_statistics(self, user_id):
+        """Applied current-season table totals, including refunds exactly once.
+
+        Placements count as tables but have no numeric loss/gain. Reversed
+        tables are excluded. Penalties are balance adjustments, not table results.
+        """
+        with self.store.connect() as db:
+            season=db.execute("SELECT value FROM lab_settings WHERE key='current_season'").fetchone()[0]
+            return dict(db.execute('''SELECT COUNT(*) AS tables,
+                COUNT(applied_delta) AS rated_tables,
+                COALESCE(SUM(applied_delta),0) AS original_delta,
+                COALESCE(SUM(refund),0) AS refunds,
+                COALESCE(SUM(effective_delta),0) AS net_table_delta,
+                AVG(effective_delta) AS average_delta
+                FROM effective_rating_events WHERE user_id=? AND season=? AND status='applied' ''', (user_id,season)).fetchone())
 
     def fixture_case(self, name, season, actor_id):
         if name not in FIXTURE_CASES:

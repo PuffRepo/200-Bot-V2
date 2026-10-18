@@ -42,6 +42,28 @@ class MemberSyncTest(unittest.IsolatedAsyncioTestCase):
         self.member.fail=True;self.sync.queue([101]);self.assertEqual(await self.sync.drain(),[101])
         self.member.fail=False;self.assertEqual(await self.sync.drain(),[])
         self.assertEqual(next(r for r in self.ratings.ratings()[1] if r['user_id']==101)['mmr'],7500)
+    async def test_loss_credit_crosses_rank_boundary_and_retries_without_second_credit(self):
+        from v2.loss_reductions import LossReductions
+        loss=LossReductions(self.store)
+        with self.store.connect() as db:
+            db.execute("INSERT INTO lab_seasons(name,started_by) VALUES ('S9',999)")
+            db.execute("UPDATE lab_settings SET value='S9' WHERE key='current_season'")
+            for uid in range(101,113):
+                if uid!=101:db.execute('INSERT INTO players(user_id,mkc_id,name,verified_by) VALUES (?,?,?,999)',(uid,uid,f'Player{uid}'))
+                db.execute("INSERT INTO season_ratings(season,user_id,mmr) VALUES ('S9',?,7500)",(uid,))
+        scores=[67,67,70,70,80,80,85,85,90,90,100,100]
+        table=self.store.submit_table(999,2,' '.join(f'Player{i} {s}' for i,s in zip(range(101,113),scores)))
+        self.ratings.apply(table,999,self.ratings.preview(table,True)['digest'],True)
+        await self.sync.sync(101)
+        self.assertNotIn(15,{r.id for r in self.member.roles})
+        preview=loss.preview(table,101,999,'0','Missed the table')
+        loss.apply(table,101,999,'0','Missed the table',preview['digest'])
+        self.member.fail=True
+        self.assertEqual(await self.sync.drain(),[101])
+        self.member.fail=False
+        self.assertEqual(await self.sync.drain(),[])
+        self.assertIn(15,{r.id for r in self.member.roles})
+        self.assertEqual(self.ratings.player_statistics(101)['refunds'],200)
     async def test_restriction_removes_rank_then_expiry_restores_it(self):
         await self.sync.sync(101)
         for i in range(3):self.mod.strike(999,101,0,'Test',f's{i}')

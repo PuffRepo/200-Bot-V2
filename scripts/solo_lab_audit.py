@@ -24,12 +24,33 @@ def audit(path):
             rows=sorted(rows,key=lambda r:json.dumps(r))
             state[name]=rows
             counts[name]=len(rows)
-        for name in ('table_confirmations','table_cancellations','table_button_previews','table_flags','table_publications','application_sequence','table_reversal_requests','table_reversals','balance_adjustments','strike_removals','member_restrictions','table_retractions'):
+        for name in ('table_confirmations','table_cancellations','table_button_previews','table_flags','table_publications','application_sequence','table_reversal_requests','table_reversals','balance_adjustments','strike_removals','member_restrictions','table_retractions','loss_reductions'):
             if db.execute('SELECT 1 FROM sqlite_master WHERE name=?',(name,)).fetchone():
                 state[name]=sorted(db.execute(f'SELECT * FROM {name}').fetchall(),key=lambda r:json.dumps(r))
                 counts[name]=len(state[name])
         if 'balance_adjustments' in counts:
             checks['adjustment_balance_errors']=db.execute("SELECT COUNT(*) FROM balance_adjustments WHERE (before_mmr IS NULL AND (after_mmr IS NOT NULL OR delta!=0)) OR (before_mmr IS NOT NULL AND (after_mmr IS NULL OR after_mmr<1 OR after_mmr-before_mmr!=delta))").fetchone()[0]
+            if 'loss_reductions' in counts:
+                checks['loss_reduction_errors']=db.execute('''SELECT COUNT(*) FROM loss_reductions r
+                    LEFT JOIN rating_events e ON e.table_id=r.table_id AND e.user_id=r.user_id
+                    LEFT JOIN tables t ON t.id=r.table_id
+                    LEFT JOIN balance_adjustments a ON a.id=r.adjustment_id
+                    LEFT JOIN application_sequence s ON s.sequence=r.boundary_sequence
+                    WHERE e.table_id IS NULL OR a.id IS NULL OR s.sequence IS NULL
+                    OR t.season!='S9' OR t.status NOT IN ('applied','reversed')
+                    OR (t.status='reversed' AND r.retained_delta!=r.original_delta) OR e.kind!='table'
+                    OR r.original_delta!=e.applied_delta OR r.original_delta>=0
+                    OR r.denominator<=0 OR r.numerator<0 OR r.numerator>r.denominator
+                    OR r.retained_delta>0 OR r.retained_delta<r.original_delta
+                    OR a.kind!='reduce_loss' OR a.user_id!=r.user_id OR a.actor_id!=r.actor_id
+                    OR a.season!='S9' OR a.reason!=r.reason
+                    OR a.delta!=r.retained_delta-r.original_delta''').fetchone()[0]
+                checks['loss_fraction_errors']=sum(
+                    denominator<=0 or numerator<0 or numerator>denominator
+                    or retained!=original*numerator//denominator
+                    for original,numerator,denominator,retained in db.execute(
+                        'SELECT original_delta,numerator,denominator,retained_delta FROM loss_reductions'))
+                checks['orphan_loss_credits']=db.execute("SELECT COUNT(*) FROM balance_adjustments a LEFT JOIN loss_reductions r ON r.adjustment_id=a.id WHERE a.kind='reduce_loss' AND r.table_id IS NULL").fetchone()[0]
         season=db.execute("SELECT value FROM lab_settings WHERE key='current_season'").fetchone()[0]
         checks['applications_not_12_events']=db.execute('SELECT COUNT(*) FROM (SELECT a.table_id FROM rating_applications a LEFT JOIN rating_events e ON e.table_id=a.table_id GROUP BY a.table_id HAVING COUNT(e.user_id)!=12)').fetchone()[0]
         checks['application_status_errors']=db.execute("SELECT COUNT(*) FROM rating_applications a JOIN tables t ON t.id=a.table_id WHERE t.status NOT IN ('applied','reversed') OR t.season!=a.season").fetchone()[0]

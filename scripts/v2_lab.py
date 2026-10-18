@@ -21,6 +21,7 @@ from v2.review_ui import ReviewButtons,ActionView,ChoiceView,TextModal,original_
 from types import SimpleNamespace
 from v2.table_publication import TablePublisher
 from v2.moderation import Moderation
+from v2.loss_reductions import LossReductions
 from v2.member_sync import MemberSync
 from v2.runtime_config import load_runtime
 from v2.lab_store import player_name
@@ -87,14 +88,18 @@ async def serve_lab(token: str, runtime=None) -> int:
     if runtime:results_channels={tier:item['results_channel_id'] for tier,item in runtime['tiers'].items()}
     publisher=TablePublisher(store,bot,LAB_GUILD_ID,results_channels)
     members=MemberSync(store,ratings,moderation,bot,runtime) if runtime else None
+    reductions=LossReductions(store)
     def command_name(name):
         if not production:return name
-        return {'v2strikes':'strike_summary','v2mystrikes':'strikes','v2mmrdeduct':'mmr_penalty','v2setname':'set_player_name','v2fixroles':'fix_roles'}.get(name,name.removeprefix('v2'))
+        return {'v2reduceloss':'reduce_loss','v2strikes':'strike_summary','v2mystrikes':'strikes','v2mmrdeduct':'mmr_penalty','v2setname':'set_player_name','v2fixroles':'fix_roles'}.get(name,name.removeprefix('v2'))
     async def sync_members(ids):
         if not members:return 'Discord member effects are not configured in this lab session.'
+        ids=set(ids)
         members.queue(ids)
-        errors=await members.drain()
-        return f'Member synchronization pending for {len(errors)} member(s); inspect /fix_roles or /v2fixroles.' if errors else 'Discord member roles/names synchronized.'
+        await members.drain()
+        with store.connect() as db:
+            pending={row[0] for row in db.execute('SELECT user_id FROM member_sync_jobs WHERE pending=1')}&ids
+        return f'Member synchronization pending for {len(pending)} requested member(s); inspect /fix_roles or /v2fixroles.' if pending else 'Discord member roles/names synchronized.'
     async def finish_table(table_id):
         with store.connect() as db:
             ids=[r[0] for r in db.execute('SELECT user_id FROM rating_events WHERE table_id=?',(table_id,))]
@@ -450,6 +455,33 @@ async def serve_lab(token: str, runtime=None) -> int:
             return await ctx.followup.send(f'Publication not completed: {error}. Ratings were not reapplied.',ephemeral=True)
         await ctx.followup.send(f'Table #{table_id} delivery complete. Ratings were not reapplied.',ephemeral=True)
 
+    @bot.slash_command(name=command_name('v2reduceloss'),description='Reduce one player’s applied S9 table loss once',guild_ids=[LAB_GUILD_ID])
+    async def v2reduceloss(ctx:discord.ApplicationContext,member:discord.Member,table_id:int,fraction:str,reason:str):
+        if not reporter(ctx):return await ctx.respond('Reporter permission required in a configured channel.',ephemeral=True)
+        await ctx.defer(ephemeral=True)
+        actor_id=ctx.author.id
+        async def preview():
+            result=await asyncio.to_thread(reductions.preview,table_id,member.id,actor_id,fraction,reason)
+            result['content']=(f"Table #{table_id}, <@{member.id}>: retain {result['numerator']}/{result['denominator']} of the original loss.\n"
+                f"Loss {result['original_delta']} → {result['retained_delta']}; credit +{result['refund']}.\n"
+                f"Current MMR {result['before']} → {result['after']}. Reason: {result['reason']}\n"
+                'One reduction per player/table. Later applied results stay unchanged; future tables use the credited balance. '
+                'Positive credits block reversals across this accounting boundary. Confirm to record the reduction.')
+            return result
+        try:result=await preview()
+        except LabError as error:return await reply_error(ctx,error)
+        async def approve(interaction,shown):
+            result=await asyncio.to_thread(reductions.apply,table_id,member.id,interaction.user.id,fraction,reason,shown['digest'])
+            try:effects=await sync_members([member.id])
+            except Exception as error:
+                print(f'Loss credit recorded; member synchronization retry needed ({type(error).__name__}).')
+                effects='Member synchronization pending; use /fix_roles. The credit is already recorded; do not refund again.'
+            await staff_log('strikes_log',f"Loss reduction table #{table_id}, <@{member.id}>, by <@{interaction.user.id}>: {result['original_delta']} → {result['retained_delta']}; credit +{result['refund']}. Reason: {result['reason']}")
+            return f"Loss reduction recorded once. MMR {result['before']} → {result['after']}. {effects}"
+        async def cancel(interaction):return 'Loss reduction canceled. Ratings unchanged.'
+        view=ReviewButtons(actor_id,ui_reporter,result,preview,approve,cancel,approve_label='Confirm reduction',reject_label='Cancel')
+        view.message=await ctx.followup.send(result['content'],view=view,ephemeral=True)
+
     @bot.slash_command(name=command_name("v2mmrdeduct"), description="Apply an MMR deduction without a strike", guild_ids=[LAB_GUILD_ID])
     async def v2mmrdeduct(ctx: discord.ApplicationContext, member: discord.Member, points: int, reason: str):
         if not (reporter(ctx) if runtime else staff(ctx)):
@@ -772,7 +804,7 @@ async def serve_lab(token: str, runtime=None) -> int:
         try:
             await bot.sync_commands(
                 commands=[v2status, v2verify, v2name, v2pending, v2review, v2strike,
-                          v2table, v2mmrdeduct, v2tables, v2tableview,
+                          v2table, v2mmrdeduct, v2reduceloss, v2tables, v2tableview,
                           v2mmrpreview, v2strikes, *([] if production else [v2seasonstart]), v2ratings,
                           v2ratingpreview, *([] if production else [v2fixturecase]),
                           v2tableflag, v2flagresolve, v2reversalrequest, v2reversalpreview,
