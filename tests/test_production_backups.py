@@ -149,7 +149,7 @@ class ProductionBackupTest(unittest.TestCase):
                 return self.returncode
         bot, worker = Child(True), Child(False)
         with patch('sys.argv', ['supervisor', '--config', str(config)]), \
-             patch.dict('os.environ', {'LOUNGE_BACKUP_BUCKET': 'test'}), \
+             patch.dict('os.environ', {'LOUNGE_BACKUP_BUCKET': 'test', 'LOUNGE_PUBLIC_FEED_ENABLED': '0'}), \
              patch.object(supervisor.signal, 'signal'), \
              patch.object(supervisor.time, 'sleep'), \
              patch.object(supervisor.subprocess, 'Popen', side_effect=[bot, worker]):

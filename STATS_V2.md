@@ -78,3 +78,23 @@ ratings and loss credits with exact string Discord IDs and a generated-at
 header. This does **not** establish which URL MogiBot actually uses, its cache
 refresh interval, or whether the live website has been updated. Verify those
 separately before claiming `/teamsmmr` has switched to S9.
+
+## Optional Railway public feed worker
+
+The same review branch now includes `scripts/serve_public_s9.py` and
+`v2/public_feed.py`. The existing backup supervisor starts it only when
+`LOUNGE_PUBLIC_FEED_ENABLED=1`; default bot/backup behavior is unchanged. It
+serves `/public/s9.json` and `/health` on Railway's `PORT` (default 8080), opens
+SQLite read-only, rejects fixture identities, and refreshes on request at most
+once per minute. Unknown file paths return 404; write methods return 405.
+Failed reads return a generic 503 without paths or private data. A worker
+failure retries independently; it does not launch another bot or restart the
+existing bot. Supervisor shutdown still cleans up child processes.
+
+This removes the need to share the SQLite volume or publish R2 backup files to
+the website. The website repository has a detailed `RAILWAY_WEBSITE_SETUP.md`
+runbook for reviewing/releasing the optional worker, creating a separate web
+service and configuring the actual public feed URL. No worker was started
+against production, no Railway variables were changed, and no DNS/deployment
+was performed during development. Use generated Railway domains first until
+control of the old domain and archive hosting are confirmed.

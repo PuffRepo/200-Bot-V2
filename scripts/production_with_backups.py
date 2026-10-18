@@ -26,6 +26,9 @@ def main():
     database = Path(config['database_path'])
     if not database.is_absolute():
         database = ROOT / database
+    public_enabled = os.environ.get('LOUNGE_PUBLIC_FEED_ENABLED', '') == '1'
+    public_feed = None
+    public_due = 0.0
     children = []
     stopping = False
     def stop(*_):
@@ -39,6 +42,19 @@ def main():
         backup = None
         due = 0.0
         while not stopping and bot.poll() is None:
+            if public_enabled:
+                if public_feed is not None and public_feed.poll() is not None:
+                    children.remove(public_feed)
+                    public_feed = None
+                    public_due = time.monotonic() + 30
+                    print('PUBLIC FEED ALERT: worker stopped; retrying in 30 seconds. Bot remains running.', flush=True)
+                if public_feed is None and time.monotonic() >= public_due:
+                    try:
+                        public_feed = subprocess.Popen([sys.executable, str(ROOT / 'scripts/serve_public_s9.py'), '--database', str(database)], cwd=ROOT)
+                        children.append(public_feed)
+                    except OSError as error:
+                        public_due = time.monotonic() + 30
+                        print(f'PUBLIC FEED ALERT: worker could not start ({type(error).__name__}); retrying in 30 seconds. Bot remains running.', flush=True)
             if backup is not None and backup.poll() is not None:
                 code = backup.returncode
                 children.remove(backup)
