@@ -124,3 +124,37 @@ historical candidates whose Discord IDs are outside the current S9 roster;
 those rows are never eligible for apply. The `fill_missing` count is the eligible
 country batch size for this database snapshot. Preserve its digest for the
 subsequent reviewed apply. Any concurrent country change invalidates that digest.
+
+## Approved 1,685-player apply
+
+The operator approved the database preview with digest
+`6399307e5a458a1f5a9bbefac2fefd8a6355f5e3f5183fd53af6c52926ac3c78`,
+showing 1,916 current players, 1,685 fill_missing rows and 2,134 unknown historical
+players. The operator supplied staff actor Discord ID `388071499770232833`.
+
+`scripts/apply_reviewed_countries_railway.sh` is pinned to that digest, actor,
+source hashes and exactly 1,685 eligible rows. Copy its entire contents and
+paste into the existing bot container's Railway SSH shell. This is the apply
+step: unlike the preview, it writes the approved country metadata and audits.
+No deployment, schema migration, registry import, bot restart or database
+replacement is needed.
+
+It opens only the existing database (mode=rw), begins one immediate transaction,
+rebuilds the preview under the write lock and refuses a changed digest or count.
+Only player_countries and player_country_audit receive inserts. Each audit
+includes its prior value, actor, reviewed batch digest and historical source
+reason. A failure rolls back the entire batch. Reusing the script after a
+successful apply fails the now-stale digest rather than repeating the batch.
+Success is printed only after commit.
+
+Tests run the actual standalone script on temporary SQLite. They compare the
+full non-country database state, verify preserved cleared flags, check actor
+and reason, reject concurrent country edits, and inject an audit failure to
+verify rollback. No production apply has been performed from this workspace.
+
+Return the script's output to verify the result. The expected newly-filled
+count is 1,685; 231 current players remain without usable historical country
+sources. The public feed can take up to 60 seconds to refresh. The separate
+website country-flag branch still needs its own release before flags appear
+on that site's pages. Already-posted table images are not changed. Any open
+table confirmations revalidate their snapshot and may require a fresh preview.
