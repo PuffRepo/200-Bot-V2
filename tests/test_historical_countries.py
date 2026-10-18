@@ -82,3 +82,37 @@ class HistoricalCountryTest(unittest.TestCase):
         for mutate in [lambda d:d.update(season='S7'),lambda d:d.update(generated_at='2000-01-01T00:00:00+00:00'),lambda d:d['players'].append(d['players'][0]),lambda d:d['players'][0].update(user_id=1)]:
             copy=json.loads(json.dumps(data));mutate(copy)
             with self.assertRaises(LabError):public_coverage(historical,copy)
+
+
+    def test_standalone_railway_preview_matches_full_pipeline_without_writes(self):
+        import contextlib,io
+        from v2.lab_store import LabStore
+        from v2.countries import set_country
+        from v2.bulk_countries import preview,digest
+        root=Path(__file__).resolve().parents[1]
+        shell=(root/'scripts/preview_historical_countries_railway.sh').read_text()
+        source=shell.split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        historical=extract([root/'sql'/f's{s}200lounge-export.sql' for s in (5,6,7)])
+        store=LabStore(self.root/'test.sqlite3')
+        ids=[int(row['discord_id']) for row in historical['candidates'][:4]]
+        with store.connect() as db:
+            for uid in ids:db.execute('INSERT INTO players(user_id,name,verified_by) VALUES (?,?,99)',(uid,f'Fixture {uid}'))
+        set_country(store,ids[0],'-',99,'Staff cleared flag')
+        set_country(store,ids[1],'JP',99,'Staff verified country')
+        with store.connect() as db:expected=preview(db,historical['candidates'])
+        before=store.path.read_bytes()
+        code=source.replace("root = Path('/app')",f'root = Path({str(root)!r})').replace("database = Path('/app/private/production.sqlite3')",f'database = Path({str(store.path)!r})')
+        out=io.StringIO()
+        with contextlib.redirect_stdout(out):exec(compile(code,'standalone_preview','exec'),{'__name__':'__main__'})
+        report=json.loads(out.getvalue())
+        self.assertEqual(report['digest'],digest(expected))
+        self.assertEqual(report['candidate_status_counts']['fill_missing'],2)
+        self.assertEqual(report['candidate_status_counts']['protected_staff_record'],2)
+        self.assertEqual(store.path.read_bytes(),before)
+        # Fail closed before opening SQLite if a deployed archive differs.
+        badroot=self.root/'changed';(badroot/'sql').mkdir(parents=True)
+        (badroot/'sql/s5200lounge-export.sql').write_text('changed')
+        guarded=code.replace(f'root = Path({str(root)!r})',f'root = Path({str(badroot)!r})')
+        with self.assertRaisesRegex(SystemExit,'Archive differs'):
+            exec(compile(guarded,'standalone_preview','exec'),{'__name__':'__main__'})
+        self.assertEqual(store.path.read_bytes(),before)

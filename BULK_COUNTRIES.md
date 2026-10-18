@@ -101,3 +101,26 @@ any apply, the database preview must enforce those protections and bind the
 reviewed digest. The same script supports a read-only database preview via
 `--database <existing.sqlite3>` when run by the production operator; never
 copy or replace production SQLite to get this count.
+
+
+## Exact production preview without deploying new tools
+
+Open `scripts/preview_historical_countries_railway.sh` on this review branch,
+copy its entire contents, then paste into the existing bot container's Railway
+SSH shell (`railway.cmd ssh` from local PowerShell). No file upload, deployment,
+bot restart or database copy is required. It uses only already-deployed V2
+country helpers and Python's standard library.
+
+This standalone preview pins the three archived SQL files by SHA-256 and row
+count before reading their known player-column layout as text. It refuses a
+changed source rather than guessing. Tests compare its candidate/digest output
+against the full SQL extractor and bulk preview, including staff-cleared flags.
+SQLite is opened with mode=ro and query_only=ON in a read transaction. Output
+contains counts and a review digest, with no player names or IDs. No apply path
+exists in this script. The archive files and SQLite database are not changed.
+
+Return the output for review before any country updates. `unknown_player` counts
+historical candidates whose Discord IDs are outside the current S9 roster;
+those rows are never eligible for apply. The `fill_missing` count is the eligible
+country batch size for this database snapshot. Preserve its digest for the
+subsequent reviewed apply. Any concurrent country change invalidates that digest.
