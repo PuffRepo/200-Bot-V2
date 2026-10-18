@@ -63,3 +63,22 @@ class HistoricalCountryTest(unittest.TestCase):
         self.assertEqual(result['summary']['conflicting_players'],3)
         self.assertEqual(result['summary']['invalid_source_players'],1)
         self.assertEqual(len({r['discord_id'] for r in result['candidates']}),3819)
+
+    def test_public_feed_overlap_uses_exact_ids_and_counts_missing_only(self):
+        from datetime import datetime,timezone
+        from scripts.preview_historical_countries import public_coverage
+        historical={'candidates':[{'discord_id':'1','country_code':'JP'},{'discord_id':'2','country_code':'US'},{'discord_id':'99','country_code':'CA'}],
+                    'conflicts':[{'discord_id':'3'}],'invalid':[{'discord_id':'4'}]}
+        data={'schema_version':1,'season':'S9','generated_at':datetime.now(timezone.utc).isoformat(),
+              'players':[{'user_id':str(i),'country_code':'FR' if i==2 else ''} for i in range(1,6)]}
+        report=public_coverage(historical,data)
+        self.assertEqual(report['current_players'],5)
+        self.assertEqual(report['historical_candidates_matching_current_players'],2)
+        self.assertEqual(report['potential_missing_countries_to_fill'],1)
+        self.assertEqual(report['current_players_with_historical_conflicts'],1)
+        self.assertEqual(report['current_players_with_invalid_historical_country'],1)
+        self.assertEqual(report['current_players_without_usable_historical_country'],3)
+        self.assertNotIn('discord_id',json.dumps(report))
+        for mutate in [lambda d:d.update(season='S7'),lambda d:d.update(generated_at='2000-01-01T00:00:00+00:00'),lambda d:d['players'].append(d['players'][0]),lambda d:d['players'][0].update(user_id=1)]:
+            copy=json.loads(json.dumps(data));mutate(copy)
+            with self.assertRaises(LabError):public_coverage(historical,copy)

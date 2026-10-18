@@ -77,3 +77,27 @@ Pass the generated countries.csv to the bulk preview above. The preview joins
 by exact Discord ID, skips unknown players and protects staff records. Do not
 execute the SQL dumps, restore an old database, or import historical ratings.
 The current deployment does not yet include these extraction/bulk scripts.
+
+
+## Next: check current S9 overlap without a deployment
+
+Run locally in the Windows repository folder, not inside Railway SSH:
+
+```powershell
+git fetch origin
+git switch codex/bulk-country-review
+git merge --ff-only origin/codex/bulk-country-review
+.\.venv-v2-tests\Scripts\python.exe scripts\preview_historical_countries.py --public-url https://200-lounge-v2.up.railway.app/public/s9.json
+```
+
+This reads the archived SQL as text and the fresh public S9 snapshot, joins only
+exact Discord IDs and prints aggregate counts. It writes no files, registers
+no commands and changes no database. No Git push or Railway deployment is
+needed. If still in the Railway SSH session, run `exit` first.
+
+The public-mode count is an estimate: explicit staff-cleared flags are private
+and cannot be distinguished from missing countries in the public feed. Before
+any apply, the database preview must enforce those protections and bind the
+reviewed digest. The same script supports a read-only database preview via
+`--database <existing.sqlite3>` when run by the production operator; never
+copy or replace production SQLite to get this count.
