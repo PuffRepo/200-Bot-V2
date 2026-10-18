@@ -45,6 +45,8 @@ class TablePublisher:
                 if not job:raise LabError('This table has no prepared results destination.')
                 job=dict(job)
                 if table['status']!='applied':raise LabError('Only applied tables can be published.')
+                from v2.countries import player_countries
+                countries=player_countries(db)
                 events={r['name']:dict(r) for r in db.execute('SELECT * FROM rating_events WHERE table_id=?',(table_id,))}
             channel=await self.destination(table['tier'])
             if channel.id!=job['channel_id']:raise LabError('Destination changed; restore the configured channel before retrying publication.')
@@ -56,7 +58,7 @@ class TablePublisher:
             policy=load_policy(POLICY_PATH)
             for name, score in pairs:
                 e=events[name]
-                rows.append({'name':e['name'],'before':e['before_mmr'],'after':e['after_mmr'],
+                rows.append({'name':e['name'],'country_code':countries.get(e['user_id'],''),'before':e['before_mmr'],'after':e['after_mmr'],
                              'applied_delta':e['applied_delta'],'kind':e['kind'],'rank':rank_for_mmr(policy,e['after_mmr'])})
             for part in ('results','mmr'):
                 if job[part+'_id']:continue

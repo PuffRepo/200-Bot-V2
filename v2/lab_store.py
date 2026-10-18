@@ -177,6 +177,16 @@ class LabStore:
                     actor_id INTEGER NOT NULL, digest TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS player_countries (
+                    user_id INTEGER PRIMARY KEY REFERENCES players(user_id),
+                    country_code TEXT NOT NULL, actor_id INTEGER NOT NULL,
+                    reason TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS player_country_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES players(user_id),
+                    before_code TEXT NOT NULL, after_code TEXT NOT NULL, actor_id INTEGER NOT NULL,
+                    reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS table_cancellations (
                     table_id INTEGER PRIMARY KEY REFERENCES tables(id), actor_id INTEGER NOT NULL,
                     reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

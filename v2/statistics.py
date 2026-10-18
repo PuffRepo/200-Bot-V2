@@ -22,6 +22,8 @@ def snapshot(db):
     policy = load_policy(POLICY_PATH)
     roster = db.execute('''SELECT p.user_id,p.name,p.mkc_id,r.mmr FROM players p
         LEFT JOIN season_ratings r ON r.user_id=p.user_id AND r.season=? ORDER BY p.user_id''', (season,)).fetchall()
+    from v2.countries import player_countries
+    countries = player_countries(db)
     names = {r['user_id']: r['name'] for r in roster}
     histories = defaultdict(list)
     peaks = defaultdict(list)
@@ -66,7 +68,7 @@ def snapshot(db):
     players = []
     for row in roster:
         uid, mmr = row['user_id'], row['mmr']
-        player = dict(user_id=str(uid), name=row['name'], mkc_id=row['mkc_id'],
+        player = dict(user_id=str(uid), name=row['name'], mkc_id=row['mkc_id'], country_code=countries.get(uid,''),
                       mmr=mmr, rank=rank_for_mmr(policy,mmr), position=positions.get(mmr),
                       peak_mmr=max([mmr]+peaks[uid]) if mmr is not None else None,
                       history=list(reversed(histories[uid])))

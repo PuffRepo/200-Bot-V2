@@ -117,6 +117,24 @@ class RuntimeCommandsTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIn('1 requested member(s)',await sync([101]))
         await self.construct('production',exercise)
 
+    async def test_country_requires_staff_and_records_source(self):
+        async def exercise(bot,runtime):
+            command=next(c for c in bot.pending_application_commands if c.name=='set_country')
+            closure=dict(zip(command.callback.__code__.co_freevars,(c.cell_contents for c in command.callback.__closure__)))
+            store=closure['store']
+            with store.connect() as db:db.execute("INSERT INTO players(user_id,name,verified_by) VALUES (123,'Player',999)")
+            actor=SimpleNamespace(id=999,roles=[SimpleNamespace(id=runtime['roles']['reporter'])],guild_permissions=SimpleNamespace(manage_guild=False))
+            ctx=SimpleNamespace(author=actor,guild_id=runtime['guild_id'],channel_id=runtime['channels']['debug'],respond=AsyncMock(),defer=AsyncMock(),followup=SimpleNamespace(send=AsyncMock()))
+            await command.callback(ctx,SimpleNamespace(id=123),'JP','Verified MKC profile')
+            ctx.respond.assert_awaited_once();ctx.defer.assert_not_awaited()
+            actor.roles=[SimpleNamespace(id=runtime['roles']['staff'][0])]
+            await command.callback(ctx,SimpleNamespace(id=123),'JP','Verified MKC profile')
+            with store.connect() as db:
+                self.assertEqual(tuple(db.execute('SELECT country_code,actor_id,reason FROM player_countries').fetchone()),('JP',999,'Verified MKC profile'))
+            await command.callback(ctx,SimpleNamespace(id=123),'ZZ','Invalid input')
+            self.assertIn('ISO two-letter',ctx.followup.send.call_args.args[0])
+        await self.construct('production',exercise)
+
     async def test_stats_default_self_filters_empty_and_access(self):
         async def exercise(bot,runtime):
             command=next(c for c in bot.pending_application_commands if c.name=='stats')
@@ -147,7 +165,7 @@ class RuntimeCommandsTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue({'v2table','v2verify','v2unstrike','v2mmrdeduct','v2fixroles'}<=commands)
     async def test_production_command_names_construct_without_connection(self):
         commands=await self.construct('production')
-        self.assertTrue({'table','verify','unstrike','mmr_penalty','reduce_loss','stats','fix_roles','strikes','mmr'}<=commands)
+        self.assertTrue({'table','verify','unstrike','mmr_penalty','reduce_loss','stats','set_country','fix_roles','strikes','mmr'}<=commands)
         self.assertFalse(any(name.startswith('v2') for name in commands))
     async def test_real_member_options_and_new_ui_components(self):
         import discord

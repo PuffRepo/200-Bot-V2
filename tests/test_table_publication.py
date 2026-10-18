@@ -68,6 +68,19 @@ class PublicationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r['name'] for r in module.render_table.call_args.args[-1]],names)
         self.assertEqual(self.channel.send.await_count,2)
 
+    async def test_publication_uses_country_by_stable_id_after_rename(self):
+        from v2.countries import set_country
+        self.apply()
+        set_country(self.store,-100001,'JP',222,'Verified profile')
+        with self.store.connect() as db:db.execute("UPDATE players SET name='Renamed' WHERE user_id=-100001")
+        self.channel.send.side_effect=[SimpleNamespace(id=1),SimpleNamespace(id=2)]
+        await self.publisher.publish(self.table)
+        row=module.render_table.call_args.args[-1][0]
+        self.assertEqual((row['name'],row['country_code']),('LAB01','JP'))
+        self.assertEqual(module.render_results.call_args.args[4][0]['country_code'],'JP')
+        await self.publisher.publish(self.table)
+        self.assertEqual(self.channel.send.await_count,2)
+
     async def test_partial_failure_retries_only_missing_embed(self):
         self.apply();self.channel.send.side_effect=[SimpleNamespace(id=1),HTTPError(403),SimpleNamespace(id=2)]
         with self.assertRaises(HTTPError):await self.publisher.publish(self.table)

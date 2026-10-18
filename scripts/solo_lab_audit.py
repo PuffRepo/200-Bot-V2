@@ -6,7 +6,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-TABLES=('players','requests','strikes','tables','mmr_adjustments','table_reviews',
+TABLES=('players','player_countries','player_country_audit','requests','strikes','tables','mmr_adjustments','table_reviews',
         'lab_seasons','lab_settings','season_ratings','rating_applications',
         'rating_events','lab_fixture_runs')
 

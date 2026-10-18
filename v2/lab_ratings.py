@@ -129,10 +129,12 @@ class LabRatings:
             raise LabError('6v6 is disabled for S9; this pending table cannot be applied.')
         scores=parse_scores(table['scores'],table['format_size'])
         identities=json.loads(table['participant_ids'])
+        from v2.countries import player_countries
+        countries=player_countries(db)
         players=[]
         for user_id,(name,score) in zip(identities,scores):
             row=db.execute('SELECT mmr,revision FROM season_ratings WHERE season=? AND user_id=?',(current,user_id)).fetchone()
-            players.append({'user_id':user_id,'name':name,'score':score,
+            players.append({'user_id':user_id,'name':name,'score':score,'country_code':countries.get(user_id,''),
                             'mmr':row['mmr'] if row else None,'revision':row['revision'] if row else 0})
         snapshot={'table_id':table_id,'season':current,'format':table['format_size'],
                   'tier':table['tier'],'policy':self.policy,'players':players,

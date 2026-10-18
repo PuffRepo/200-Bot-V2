@@ -36,6 +36,14 @@ class StatisticsTest(unittest.TestCase):
         with self.store.connect() as db:
             db.execute('BEGIN');return snapshot(db)
 
+    def test_country_is_public_but_country_audit_stays_private(self):
+        from v2.countries import set_country
+        set_country(self.store,1,'JP',999,'PRIVATE PROFILE REASON')
+        self.apply()
+        data=self.data()
+        self.assertEqual(data['players'][0]['country_code'],'JP')
+        self.assertNotIn('PRIVATE PROFILE REASON',json.dumps(data))
+
     def test_registered_unplayed_and_unplaced_have_honest_empty_stats(self):
         result=read_player_statistics(self.store,13)
         self.assertIsNone(result['player']['mmr']);self.assertIsNone(result['player']['position'])

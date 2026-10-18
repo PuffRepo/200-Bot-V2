@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+from v2.countries import country_code
 from v2.lab_store import parse_scores
 from v2.name_fonts import draw_player_name
 from v2.season_policy import load_policy, rank_for_mmr
@@ -36,6 +37,17 @@ def fit_text(draw, value, size, available, mono=False, bold=False):
     return f
 
 
+def draw_flag(image, code, center, width=30):
+    """Bundled PNG flags work without emoji fonts, network or SVG delegates."""
+    code=country_code(code)
+    path=ROOT/'images/flags'/f'{code.lower()}.png'
+    if not code or not path.is_file():return
+    with Image.open(path) as source:
+        flag=source.convert('RGBA')
+        flag.thumbnail((width,round(width*2/3)),Image.Resampling.LANCZOS)
+        image.paste(flag,(round(center[0]-flag.width/2),round(center[1]-flag.height/2)),flag)
+
+
 def render_table(table_id, format_size, tier, scores, rows):
     """Compact legacy MMR card; scores appear on the separate results card."""
     groups=results_layout(format_size,scores,rows)
@@ -47,13 +59,14 @@ def render_table(table_id, format_size, tier, scores, rows):
             image=ImageOps.fit(source.convert('RGB'),(width,height)).convert('RGBA')
     else:image=Image.new('RGBA',(width,height),'#151515')
     # Retain the Mario Kart pattern without sacrificing text contrast.
-    image=Image.alpha_composite(image,Image.new('RGBA',image.size,(0,0,0,100)))
+    image=Image.alpha_composite(image,Image.new('RGBA',image.size,(0,0,0,45)))
     draw=ImageDraw.Draw(image)
     fmt='FFA' if format_size==1 else f'{format_size}v{format_size}'
-    draw.text((18,12),f'{tier} {fmt}',font=font(30,True),fill='white')
+    draw.text((18,12),f'{tier.lower()} {fmt}',font=font(30,True),fill='white')
     draw.text((1160,20),f'S9 | Table #{table_id}',font=font(18,True),fill='#dddddd',anchor='ra')
     edges=[12,85,425,595,725,910,1170]
-    for i,label in enumerate(('PLACE','NAME','MMR','+/-','NEW MMR','RANK CHANGE')):
+    for edge in edges[1:-1]:draw.text((edge,66),'|',font=font(18,True),fill='white',anchor='mm')
+    for i,label in enumerate(('PLACE','NAME','MMR','+/-','NEW MMR','RANKUPS')):
         center=(edges[i]+edges[i+1])/2
         draw.text((center,66),label,font=font(18,True),fill='#ffffff',anchor='mm')
     policy=load_policy(ROOT/'settings/s9-policy.json')
@@ -63,22 +76,22 @@ def render_table(table_id, format_size, tier, scores, rows):
             row=by_name[member['name']]
             old_rank=rank_for_mmr(policy,row['before']);new_rank=row['rank']
             change='—' if row['kind']=='placement' else f"{row['applied_delta']:+d}"
-            rank_change=new_rank if new_rank!=old_rank else '—'
+            rank_change=(('+ ' if row['before'] is None or row['after']>row['before'] else '- ')+new_rank) if new_rank!=old_rank else ''
             values=[str(group['place']) if i==0 else '',row['name'],
                     'Placement' if row['before'] is None else str(row['before']),change,str(row['after']),rank_change]
             delta_color='#7fff00' if row['kind']=='table' and row['applied_delta']>0 else '#ff4040' if row['kind']=='table' and row['applied_delta']<0 else '#ffffff'
-            colors=['white','white','white',delta_color,'#ffff66' if rank_change!='—' else 'white',RANK_COLORS.get(new_rank,'white')]
+            colors=['white','white','white',delta_color,'white',RANK_COLORS.get(new_rank,'white')]
             for index,(value,color) in enumerate(zip(values,colors)):
                 center=(edges[index]+edges[index+1])/2
                 if index==1:
-                    draw_player_name(draw,(center,y+18),value,22,edges[index+1]-edges[index]-18,color)
+                    draw_flag(image,row.get('country_code'),(edges[index]+22,y+18),25)
+                    draw_player_name(draw,(center+12,y+18),value,22,edges[index+1]-edges[index]-65,color)
                 else:
                     f=fit_text(draw,value,22,edges[index+1]-edges[index]-18,True)
                     draw.text((center,y+18),value,font=f,fill=color,anchor='mm')
-            for edge in edges[1:-1]:draw.line((edge,y+3,edge,y+33),fill='#76D7C4',width=1)
+            for edge in edges[1:-1]:draw.text((edge,y+18),'|',font=font(22,True),fill='white',anchor='mm')
             y+=40
         y+=7
-    draw.text((18,720),'Initial placement: — delta. Review both cards; Yes applies, No cancels.',font=font(17,True),fill='#eeeeee')
     output=BytesIO();image.convert('RGB').save(output,format='PNG');return output.getvalue()
 
 
@@ -91,7 +104,7 @@ def results_layout(format_size, scores, rows):
     for index,total in enumerate(totals):
         members=sorted(rows[index*format_size:(index+1)*format_size],key=lambda r:-points[r['name']])
         groups.append({'total':total,'place':1+sum(t>total for t in totals),
-                       'players':[{'name':r['name'],'score':points[r['name']],
+                       'players':[{'name':r['name'],'country_code':country_code(r.get('country_code')),'score':points[r['name']],
                                    'place':1+sum(v>points[r['name']] for v in all_points)} for r in members]})
     return sorted(groups,key=lambda g:-g['total'])
 
@@ -158,6 +171,7 @@ def render_results_local(table_id, format_size, tier, scores, rows, date_text=No
         for member in group['players']:
             row_y=y+26
             draw.rounded_rectangle((392,y+4,855,y+48),radius=5,fill=tuple(round(c*.91) for c in rgb))
+            draw_flag(image,member['country_code'],(354,row_y),32)
             draw_player_name(draw,(560,row_y),member['name'],29,315,'black')
             draw.text((763,row_y),str(member['score']),font=font(29,bold=True),fill='black',anchor='mm')
             if member['place']<=3:podium(draw,824,row_y-3,member['place'],.68)
@@ -178,7 +192,7 @@ def lorenzi_query(format_size, scores, rows):
     for index,group in enumerate(groups):
         if format_size!=1:
             lines.append(f"{group['place']} {FORMAT_COLORS[format_size][index%2]}")
-        lines.extend(f"{player['name']} {player['score']}" for player in group['players'])
+        lines.extend(f"{player['name']}{' ['+player['country_code']+']' if player['country_code'] else ''} {player['score']}" for player in group['players'])
     return '\n'.join(lines)+'\n'
 
 

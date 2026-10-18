@@ -44,3 +44,19 @@ class TableImageTest(unittest.TestCase):
 
     def test_reference_date_is_stable_from_table_creation(self):
         self.assertEqual(results_date('2026-09-26 23:59:59'),'26 Sep 2026')
+
+    def test_legacy_mmr_headings_signed_rank_changes_and_placement(self):
+        from unittest.mock import patch
+        from PIL import ImageDraw
+        rows=[{'name':f'P{i}','before':1499,'after':1500,'applied_delta':1,'kind':'table','rank':'Bronze'} for i in range(1,13)]
+        rows[1].update(before=1500,after=1499,applied_delta=-1,rank='Iron')
+        rows[2].update(before=None,after=3750,applied_delta=None,kind='placement',rank='Silver')
+        raw=' '.join(f"{r['name']} 82" for r in rows)
+        original=ImageDraw.ImageDraw.text
+        with patch.object(ImageDraw.ImageDraw,'text',autospec=True,side_effect=original) as text:
+            render_table(7,3,'tier-all',raw,rows)
+        labels=[c.args[2] for c in text.call_args_list]
+        for label in ['tier-all 3v3','RANKUPS','+ Bronze','- Iron','+ Silver','Placement','—']:
+            self.assertIn(label,labels)
+        self.assertNotIn('RANK CHANGE',labels)
+        self.assertFalse(any('Yes applies' in value for value in labels))

@@ -92,7 +92,7 @@ async def serve_lab(token: str, runtime=None) -> int:
     reductions=LossReductions(store)
     def command_name(name):
         if not production:return name
-        return {'v2reduceloss':'reduce_loss','v2strikes':'strike_summary','v2mystrikes':'strikes','v2mmrdeduct':'mmr_penalty','v2setname':'set_player_name','v2fixroles':'fix_roles'}.get(name,name.removeprefix('v2'))
+        return {'v2country':'set_country','v2reduceloss':'reduce_loss','v2strikes':'strike_summary','v2mystrikes':'strikes','v2mmrdeduct':'mmr_penalty','v2setname':'set_player_name','v2fixroles':'fix_roles'}.get(name,name.removeprefix('v2'))
     async def sync_members(ids):
         if not members:return 'Discord member effects are not configured in this lab session.'
         ids=set(ids)
@@ -455,6 +455,16 @@ async def serve_lab(token: str, runtime=None) -> int:
         except Exception as error:
             return await ctx.followup.send(f'Publication not completed: {error}. Ratings were not reapplied.',ephemeral=True)
         await ctx.followup.send(f'Table #{table_id} delivery complete. Ratings were not reapplied.',ephemeral=True)
+
+    @bot.slash_command(name=command_name('v2country'),description='Record a verified player country for flags',guild_ids=[LAB_GUILD_ID])
+    async def v2country(ctx:discord.ApplicationContext,member:discord.Member,code:str,reason:str):
+        if not staff(ctx):return await ctx.respond('Staff permission required in a configured channel.',ephemeral=True)
+        await ctx.defer(ephemeral=True)
+        from v2.countries import set_country
+        try:
+            saved=await asyncio.to_thread(set_country,store,member.id,code,ctx.author.id,reason)
+        except LabError as error:return await reply_error(ctx,error)
+        await ctx.followup.send(f'Country {saved or "cleared"} recorded for <@{member.id}>. Ratings unchanged. New images and the next public feed refresh will use it.',ephemeral=True)
 
     @bot.slash_command(name=command_name('v2reduceloss'),description='Reduce one player’s applied S9 table loss once',guild_ids=[LAB_GUILD_ID])
     async def v2reduceloss(ctx:discord.ApplicationContext,member:discord.Member,table_id:int,fraction:str,reason:str):
@@ -845,7 +855,7 @@ async def serve_lab(token: str, runtime=None) -> int:
             await members.reconcile()
         try:
             await bot.sync_commands(
-                commands=[v2status, v2verify, v2name, v2pending, v2review, v2strike,
+                commands=[v2country, v2status, v2verify, v2name, v2pending, v2review, v2strike,
                           v2table, v2mmrdeduct, v2reduceloss, v2stats, v2tables, v2tableview,
                           v2mmrpreview, v2strikes, *([] if production else [v2seasonstart]), v2ratings,
                           v2ratingpreview, *([] if production else [v2fixturecase]),
