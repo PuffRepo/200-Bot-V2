@@ -38,6 +38,68 @@ class RuntimeCommandsTest(unittest.IsolatedAsyncioTestCase):
             if exercise:await exercise(bots[0],runtime)
             return {c.name for c in bots[0].pending_application_commands}
 
+    async def test_registered_member_flag_request_and_staff_queue_approval(self):
+        from v2.countries import player_countries
+        async def exercise(bot,runtime):
+            commands={c.name:c for c in bot.pending_application_commands}
+            command=commands['flag']
+            closure=dict(zip(command.callback.__code__.co_freevars,(c.cell_contents for c in command.callback.__closure__)))
+            flags=closure['flag_requests'];store=flags.store
+            actor=SimpleNamespace(id=123,roles=[],guild_permissions=SimpleNamespace(manage_guild=False))
+            ctx=SimpleNamespace(author=actor,guild_id=runtime['guild_id'],channel_id=runtime['channels']['debug'],respond=AsyncMock(),defer=AsyncMock(),followup=SimpleNamespace(send=AsyncMock()))
+            with patch.object(bot,'fetch_channel',new=AsyncMock(return_value=SimpleNamespace(send=AsyncMock()))):
+                await command.callback(ctx,'Japan','Member context')
+                self.assertIn('name/flag-request channel',ctx.respond.call_args.args[0])
+                ctx.channel_id=runtime['channels']['name_requests']
+                await command.callback(ctx,'Japan','Member context')
+                self.assertIn('registered and verified',ctx.followup.send.call_args.args[0])
+                with store.connect() as db:db.execute("INSERT INTO players(user_id,name,verified_by) VALUES (123,'Member',999)")
+                actor.roles=[SimpleNamespace(id=runtime['roles']['chat_restricted'])]
+                await command.callback(ctx,'Japan','Member context')
+                self.assertIn('unrestricted',ctx.respond.call_args.args[0])
+                actor.roles=[]
+                await command.callback(ctx,'Japan','Member context')
+                self.assertIn('recorded for staff review',ctx.followup.send.call_args.args[0])
+                with store.connect() as db:
+                    self.assertEqual(player_countries(db),{})
+                    flag_id=db.execute('SELECT id FROM flag_requests').fetchone()[0]
+                verify_id=store.request_verify(456,'https://mkcentral.com/registry/players/profile?id=456')
+                actor.id=999;actor.guild_permissions.manage_guild=True;ctx.channel_id=runtime['channels']['debug']
+                await commands['pending'].callback(ctx)
+                queue=ctx.followup.send.call_args.kwargs['view']
+                self.assertEqual({o.value for o in queue.select.options},{str(verify_id),f'flag:{flag_id}'})
+                interaction=SimpleNamespace(user=actor,guild_id=runtime['guild_id'],response=SimpleNamespace(send_message=AsyncMock(),defer=AsyncMock()),followup=SimpleNamespace(send=AsyncMock()),edit_original_response=AsyncMock())
+                await queue.choose(interaction,f'flag:{flag_id}')
+                view=interaction.followup.send.call_args.kwargs['view']
+                self.assertIn('Japan (JP)',interaction.followup.send.call_args.args[0])
+                actor.guild_permissions.manage_guild=False
+                self.assertFalse(await view.interaction_check(interaction))
+                actor.guild_permissions.manage_guild=True
+                self.assertTrue(await view.interaction_check(interaction))
+                await view.children[0].callback(interaction)
+                await view.children[0].callback(interaction)
+                with store.connect() as db:
+                    self.assertEqual(player_countries(db),{123:'JP'})
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM player_country_audit').fetchone()[0],1)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM member_sync_jobs').fetchone()[0],0)
+                    self.assertEqual(db.execute('SELECT status FROM requests WHERE id=?',(verify_id,)).fetchone()[0],'pending')
+                queue.stop();view.stop()
+                # A later staff correction invalidates an already-open flag preview.
+                from v2.countries import set_country
+                next_id=flags.request(123,'US')
+                await queue.choose(interaction,f'flag:{next_id}')
+                stale_view=interaction.followup.send.call_args.kwargs['view']
+                set_country(store,123,'CA',100,'Concurrent staff correction')
+                await stale_view.children[0].callback(interaction)
+                self.assertFalse(stale_view.finished)
+                self.assertTrue(stale_view.children[0].disabled)
+                await stale_view.children[1].callback(interaction)
+                with store.connect() as db:
+                    self.assertEqual(player_countries(db),{123:'CA'})
+                    self.assertEqual(db.execute('SELECT status FROM flag_requests WHERE id=?',(next_id,)).fetchone()[0],'rejected')
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM player_country_audit').fetchone()[0],2)
+        await self.construct('production',exercise)
+
     async def test_empty_command_lists_omit_view_for_ephemeral_followups(self):
         async def exercise(bot,runtime):
             async def strict_send(*args,**kwargs):
@@ -226,7 +288,7 @@ class RuntimeCommandsTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue({'v2table','v2verify','v2unstrike','v2mmrdeduct','v2fixroles'}<=commands)
     async def test_production_command_names_construct_without_connection(self):
         commands=await self.construct('production')
-        self.assertTrue({'table','verify','unstrike','mmr_penalty','reduce_loss','stats','set_country','fix_roles','strikes','mmr'}<=commands)
+        self.assertTrue({'table','verify','unstrike','mmr_penalty','reduce_loss','stats','flag','set_country','fix_roles','strikes','mmr'}<=commands)
         self.assertFalse(any(name.startswith('v2') for name in commands))
     async def test_real_member_options_and_new_ui_components(self):
         import discord

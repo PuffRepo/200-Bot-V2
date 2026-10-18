@@ -187,6 +187,15 @@ class LabStore:
                     before_code TEXT NOT NULL, after_code TEXT NOT NULL, actor_id INTEGER NOT NULL,
                     reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS flag_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES players(user_id),
+                    country_code TEXT NOT NULL, reason TEXT NOT NULL, base_country TEXT NOT NULL,
+                    base_digest TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK(status IN ('pending','approved','rejected')),
+                    reviewer_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewed_at TEXT
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS one_pending_flag_request
+                    ON flag_requests(user_id) WHERE status='pending';
                 CREATE TABLE IF NOT EXISTS table_cancellations (
                     table_id INTEGER PRIMARY KEY REFERENCES tables(id), actor_id INTEGER NOT NULL,
                     reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

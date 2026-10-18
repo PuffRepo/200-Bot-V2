@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from v2.table_publication import TablePublisher
 from v2.moderation import Moderation
 from v2.loss_reductions import LossReductions
+from v2.flag_requests import FlagRequests,country_choices,country_label
 from v2.statistics import snapshot as statistics_snapshot, player_statistics
 from v2.member_sync import MemberSync
 from v2.runtime_config import load_runtime
@@ -90,6 +91,7 @@ async def serve_lab(token: str, runtime=None) -> int:
     publisher=TablePublisher(store,bot,LAB_GUILD_ID,results_channels)
     members=MemberSync(store,ratings,moderation,bot,runtime) if runtime else None
     reductions=LossReductions(store)
+    flag_requests=FlagRequests(store)
     def command_name(name):
         if not production:return name
         return {'v2country':'set_country','v2reduceloss':'reduce_loss','v2strikes':'strike_summary','v2mystrikes':'strikes','v2mmrdeduct':'mmr_penalty','v2setname':'set_player_name','v2fixroles':'fix_roles'}.get(name,name.removeprefix('v2'))
@@ -201,7 +203,27 @@ async def serve_lab(token: str, runtime=None) -> int:
             return 'Request rejected. Member registration/name unchanged.'
         return preview,ReviewButtons(reviewer_id,ui_staff,preview,refresh,approve,reject)
 
+    async def flag_request_panel(request_id,reviewer_id):
+        preview=await asyncio.to_thread(flag_requests.preview,request_id,reviewer_id)
+        async def refresh():
+            updated=await asyncio.to_thread(flag_requests.preview,request_id,reviewer_id)
+            if updated['stale']:view.children[0].disabled=True
+            return updated
+        async def approve(interaction,reviewed):
+            await asyncio.to_thread(flag_requests.review,request_id,interaction.user.id,True,reviewed['digest'])
+            await staff_log('verification_log',f"Flag request #F{request_id} approved by <@{interaction.user.id}> for <@{preview['request']['user_id']}>: {country_label(preview['request']['country_code'])}.")
+            return 'Flag request approved. Country updated; ratings and roles unchanged. The website feed may take up to 60 seconds to refresh.'
+        async def reject(interaction):
+            await asyncio.to_thread(flag_requests.review,request_id,interaction.user.id,False)
+            await staff_log('verification_log',f"Flag request #F{request_id} rejected by <@{interaction.user.id}>.")
+            return 'Flag request rejected. Country unchanged.'
+        view=ReviewButtons(reviewer_id,ui_staff,preview,refresh,approve,reject,approve_label='Approve flag',reject_label='Reject flag')
+        if preview['stale']:view.children[0].disabled=True
+        return preview,view
+
     async def choose_request(interaction,value):
+        if value.startswith('flag:'):
+            return await send_panel(interaction,await flag_request_panel(int(value.split(':',1)[1]),interaction.user.id))
         request_id=int(value)
         with store.connect() as db:row=db.execute("SELECT kind,user_id FROM requests WHERE id=? AND status='pending'",(request_id,)).fetchone()
         if not row:raise LabError('Request is already resolved.')
@@ -328,6 +350,24 @@ async def serve_lab(token: str, runtime=None) -> int:
         await staff_log("verification_log",f"Name request #{request_id} from <@{ctx.author.id}>: {name}. Staff: open /{command_name('v2pending')} and choose the request.")
         await ctx.followup.send(f"Lab name request #{request_id} recorded for staff review.", ephemeral=True)
 
+    async def flag_country_autocomplete(ctx):
+        return [discord.OptionChoice(name=label,value=code) for label,code in country_choices(str(ctx.value or ''))]
+
+    @bot.slash_command(name=command_name('v2flag'),description='Request your country flag for staff approval',guild_ids=[LAB_GUILD_ID])
+    async def v2flag(ctx:discord.ApplicationContext,
+                     country:discord.Option(str,description='Choose a country, or enter US, GB, JP, etc.',autocomplete=flag_country_autocomplete),
+                     reason:discord.Option(str,description='Optional context for staff',max_length=400)=None):
+        if not workflow_channel(ctx,'name_requests'):
+            return await ctx.respond('Use the configured name/flag-request channel.',ephemeral=True)
+        if restricted(ctx.author):
+            return await ctx.respond('Flag requests require unrestricted member access.',ephemeral=True)
+        await ctx.defer(ephemeral=True)
+        try:
+            request_id=await asyncio.to_thread(flag_requests.request,ctx.author.id,country,reason)
+        except LabError as error:return await reply_error(ctx,error)
+        await staff_log('verification_log',f"Flag request #F{request_id} from <@{ctx.author.id}>. Staff: open /{command_name('v2pending')} and choose the flag request.")
+        await ctx.followup.send(f'Flag request #F{request_id} recorded for staff review. Your flag stays unchanged until approved.',ephemeral=True)
+
     @bot.slash_command(name=command_name("v2review"), description="Review a lab verification or name request", guild_ids=[LAB_GUILD_ID])
     async def v2review(ctx: discord.ApplicationContext, request_id: int, approve: bool,
                        verified_name: str = ""):
@@ -345,15 +385,18 @@ async def serve_lab(token: str, runtime=None) -> int:
         await staff_log("verification_log",f"Request #{request_id}: {status} by <@{ctx.author.id}>.{effects}")
         await ctx.followup.send(f"Request #{request_id}: {status}."+effects, ephemeral=True)
 
-    @bot.slash_command(name=command_name("v2pending"), description="List pending lab requests", guild_ids=[LAB_GUILD_ID])
+    @bot.slash_command(name=command_name("v2pending"), description="List pending verification, name and flag requests", guild_ids=[LAB_GUILD_ID])
     async def v2pending(ctx: discord.ApplicationContext):
         if not staff(ctx):
             return await ctx.respond("Staff permission required in a configured channel.", ephemeral=True)
         await ctx.defer(ephemeral=True)
         with store.connect() as db:
-            requests = db.execute("SELECT id,kind,user_id,value FROM requests WHERE status='pending' ORDER BY id LIMIT 15").fetchall()
-        listing = "\n".join(f"#{r['id']} {r['kind']} <@{r['user_id']}>: {r['value']}" for r in requests)
-        options=[discord.SelectOption(label=f"{r['kind']} request #{r['id']}",description=f"Member {r['user_id']}: {r['value']}"[:100],value=str(r['id'])) for r in requests]
+            requests = db.execute("""SELECT id,kind,user_id,value,created_at,'request' AS source FROM requests WHERE status='pending'
+                UNION ALL SELECT id,'flag',user_id,country_code,created_at,'flag' FROM flag_requests WHERE status='pending'
+                ORDER BY created_at,id,source LIMIT 15""").fetchall()
+        def request_key(row):return 'F'+str(row['id']) if row['source']=='flag' else str(row['id'])
+        listing = "\n".join(f"#{request_key(r)} {r['kind']} <@{r['user_id']}>: {r['value']}" for r in requests)
+        options=[discord.SelectOption(label=f"{r['kind']} request #{request_key(r)}",description=f"Member {r['user_id']}: {r['value']}"[:100],value='flag:'+str(r['id']) if r['source']=='flag' else str(r['id'])) for r in requests]
         view_options={'view':ChoiceView(ctx.author.id,ui_staff,options,choose_request)} if options else {}
         await ctx.followup.send(listing or 'No pending requests.',ephemeral=True,**view_options)
 
@@ -864,7 +907,7 @@ async def serve_lab(token: str, runtime=None) -> int:
             await members.reconcile()
         try:
             await bot.sync_commands(
-                commands=[v2country, v2status, v2verify, v2name, v2pending, v2review, v2strike,
+                commands=[v2country, v2status, v2verify, v2name, v2flag, v2pending, v2review, v2strike,
                           v2table, v2mmrdeduct, v2reduceloss, v2stats, v2tables, v2tableview,
                           v2mmrpreview, v2strikes, *([] if production else [v2seasonstart]), v2ratings,
                           v2ratingpreview, *([] if production else [v2fixturecase]),

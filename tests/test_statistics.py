@@ -36,6 +36,16 @@ class StatisticsTest(unittest.TestCase):
         with self.store.connect() as db:
             db.execute('BEGIN');return snapshot(db)
 
+    def test_flag_requests_keep_member_context_and_reviewer_private(self):
+        from v2.flag_requests import FlagRequests
+        flags=FlagRequests(self.store)
+        request=flags.request(1,'JP','PRIVATE FLAG CONTEXT')
+        flags.review(request,999,True,flags.preview(request,999)['digest'])
+        data=self.data()
+        self.assertEqual(data['players'][0]['country_code'],'JP')
+        self.assertNotIn('PRIVATE FLAG CONTEXT',json.dumps(data))
+        self.assertNotIn('flag_requests',json.dumps(data))
+
     def test_country_is_public_but_country_audit_stays_private(self):
         from v2.countries import set_country
         set_country(self.store,1,'JP',999,'PRIVATE PROFILE REASON')
