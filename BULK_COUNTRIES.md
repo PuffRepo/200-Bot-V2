@@ -2,9 +2,10 @@
 
 The released bot already reads any unambiguous country_code preserved in
 registry_import_audit historical registration records. No mass write is needed
-for those players. This workspace contains no real roster/registry export or
-production database; only temporary test fixtures are available. Country
-coverage in production has not been verified.
+for those players. This workspace contains archived S5/S6/S7 SQL exports, but no current S9
+roster export or production database. The live read-only coverage check reported
+1,916 players and zero recorded countries. Historical-to-current ID overlap
+has not yet been verified.
 
 The read-only audit prints counts only, without names, IDs or private source
 records. It refuses to create a missing SQLite file:
@@ -49,3 +50,30 @@ No production database access or deployment was performed for this patch.
 A recorded MKC number alone is not proof that it is a valid current registry
 profile ID. Review its namespace/identity before fetching a profile country.
 Never match profiles by approximate display name, language or assumed location.
+
+
+## Restoring historical countries
+
+The tracked archives contain real country values; they must be parsed as text,
+never imported into or executed against any database. Generate a fresh review
+folder and country-only CSV with:
+
+```text
+python scripts/extract_historical_countries.py --sql sql/s5200lounge-export.sql sql/s6200lounge-export.sql sql/s7200lounge-export.sql --output historical-country-review
+```
+
+The extractor reads the actual player schema, preserves exact Discord IDs,
+ignores display names for matching and exports no names, friend codes or MMR.
+It records source hashes and excludes both cross-season conflicts and invalid
+nonempty codes. Its output directory must not already exist.
+
+Results from the repository archives: S5 1,709 player rows, S6 2,627, S7 3,786.
+Their union has 3,823 unique Discord IDs: 3,819 unambiguous country candidates,
+3 country conflicts and 1 invalid-source player. These are historical totals,
+not a claim that all 1,916 current S9 players can be filled. Historical countries
+may be out of date. Review the source and current-player overlap before apply.
+
+Pass the generated countries.csv to the bulk preview above. The preview joins
+by exact Discord ID, skips unknown players and protects staff records. Do not
+execute the SQL dumps, restore an old database, or import historical ratings.
+The current deployment does not yet include these extraction/bulk scripts.
