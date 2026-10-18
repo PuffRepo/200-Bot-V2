@@ -38,6 +38,41 @@ class RuntimeCommandsTest(unittest.IsolatedAsyncioTestCase):
             if exercise:await exercise(bots[0],runtime)
             return {c.name for c in bots[0].pending_application_commands}
 
+    async def test_empty_command_lists_omit_view_for_ephemeral_followups(self):
+        async def exercise(bot,runtime):
+            async def strict_send(*args,**kwargs):
+                # Pycord treats an explicitly supplied view differently from omission.
+                if 'view' in kwargs and kwargs['view'] is None:
+                    raise AttributeError("'NoneType' object has no attribute 'timeout'")
+            ctx=SimpleNamespace(author=SimpleNamespace(id=999,roles=[],guild_permissions=SimpleNamespace(manage_guild=True)),
+                guild_id=runtime['guild_id'],channel_id=runtime['channels']['debug'],respond=AsyncMock(),
+                defer=AsyncMock(),followup=SimpleNamespace(send=AsyncMock(side_effect=strict_send)))
+            commands={c.name:c for c in bot.pending_application_commands}
+            for name,args,expected in [('pending',(),'No pending requests.'),
+                                       ('unstrike',(SimpleNamespace(id=123),'Reviewed request'),'no active season strikes'),
+                                       ('corrections',(),'No outstanding correction')]:
+                await commands[name].callback(ctx,*args)
+                call=ctx.followup.send.call_args
+                self.assertIn(expected,call.args[0]);self.assertTrue(call.kwargs['ephemeral'])
+                self.assertNotIn('view',call.kwargs)
+            ctx.respond.assert_not_awaited()
+        await self.construct('production',exercise)
+
+    async def test_pending_requests_still_offer_the_authorized_choice_view(self):
+        async def exercise(bot,runtime):
+            command=next(c for c in bot.pending_application_commands if c.name=='pending')
+            closure=dict(zip(command.callback.__code__.co_freevars,(c.cell_contents for c in command.callback.__closure__)))
+            request=closure['store'].request_verify(123,'https://mkcentral.com/registry/players/profile?id=123')
+            ctx=SimpleNamespace(author=SimpleNamespace(id=999,roles=[],guild_permissions=SimpleNamespace(manage_guild=True)),
+                guild_id=runtime['guild_id'],channel_id=runtime['channels']['debug'],respond=AsyncMock(),
+                defer=AsyncMock(),followup=SimpleNamespace(send=AsyncMock()))
+            await command.callback(ctx)
+            view=ctx.followup.send.call_args.kwargs['view']
+            self.assertEqual(view.actor_id,999);self.assertEqual(view.select.options[0].value,str(request))
+            self.assertTrue(ctx.followup.send.call_args.kwargs['ephemeral'])
+            view.stop()
+        await self.construct('production',exercise)
+
     async def test_reduce_loss_reporter_confirmation_cancel_and_retry(self):
         from v2.lab_ratings import LabRatings
         from v2.member_sync import MemberSync

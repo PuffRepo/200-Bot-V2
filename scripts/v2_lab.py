@@ -354,7 +354,8 @@ async def serve_lab(token: str, runtime=None) -> int:
             requests = db.execute("SELECT id,kind,user_id,value FROM requests WHERE status='pending' ORDER BY id LIMIT 15").fetchall()
         listing = "\n".join(f"#{r['id']} {r['kind']} <@{r['user_id']}>: {r['value']}" for r in requests)
         options=[discord.SelectOption(label=f"{r['kind']} request #{r['id']}",description=f"Member {r['user_id']}: {r['value']}"[:100],value=str(r['id'])) for r in requests]
-        await ctx.followup.send(listing or 'No pending requests.',view=ChoiceView(ctx.author.id,ui_staff,options,choose_request) if options else None,ephemeral=True)
+        view_options={'view':ChoiceView(ctx.author.id,ui_staff,options,choose_request)} if options else {}
+        await ctx.followup.send(listing or 'No pending requests.',ephemeral=True,**view_options)
 
     @bot.slash_command(name=command_name("v2strike"), description="Issue a strike and apply its MMR penalty", guild_ids=[LAB_GUILD_ID])
     async def v2strike(ctx: discord.ApplicationContext, member: discord.Member, reason: str, mmr_penalty: int = 0):
@@ -520,7 +521,8 @@ async def serve_lab(token: str, runtime=None) -> int:
             effects=await sync_members([result['user_id']])
             await staff_log('strikes_log',f"Strike #{value} removed by <@{interaction.user.id}>: {reason}; actual refund {result['delta']:+d}.")
             await interaction.followup.send(f"Strike #{value} removed; refund {result['delta']:+d}. History retained. {effects}",ephemeral=True)
-        await ctx.followup.send('Choose the strike to remove. The 24-hour and no-self-removal rules still apply.' if options else 'This member has no active season strikes.',view=ChoiceView(ctx.author.id,ui_reporter if runtime else ui_staff,options,choose) if options else None,ephemeral=True)
+        view_options={'view':ChoiceView(ctx.author.id,ui_reporter if runtime else ui_staff,options,choose)} if options else {}
+        await ctx.followup.send('Choose the strike to remove. The 24-hour and no-self-removal rules still apply.' if options else 'This member has no active season strikes.',ephemeral=True,**view_options)
 
     @bot.slash_command(name=command_name('v2stats'),description='S9 player statistics from applied V2 tables',guild_ids=[LAB_GUILD_ID])
     async def v2stats(ctx:discord.ApplicationContext,member:discord.Member=None,player:str=None,
@@ -798,7 +800,8 @@ async def serve_lab(token: str, runtime=None) -> int:
                     await i.response.send_modal(TextModal('Staff issue resolution',[dict(label='Resolution reason',max_length=200)],ui_staff,submit))
                 return await interaction.followup.send('Enter your resolution reason, then choose Uphold issue or Clear issue.',view=ActionView('Enter resolution reason',ui_staff,open_reason),ephemeral=True)
             await send_panel(interaction,await (reversal_panel(record,interaction.user.id) if kind=='reverse' else replacement_panel(record,interaction.user.id)))
-        await ctx.followup.send('Choose a correction. IDs and confirmation codes are carried automatically.' if options else 'No outstanding correction approvals/replacements. Dispute holds still use the flag commands.',view=ChoiceView(ctx.author.id,ui_reporter,options,choose) if options else None,ephemeral=True)
+        view_options={'view':ChoiceView(ctx.author.id,ui_reporter,options,choose)} if options else {}
+        await ctx.followup.send('Choose a correction. IDs and confirmation codes are carried automatically.' if options else 'No outstanding correction approvals/replacements. Dispute holds still use the flag commands.',ephemeral=True,**view_options)
 
     @bot.slash_command(name=command_name("v2fixturecase"), description="Start a NEW lab season with a reserved fixture scenario", guild_ids=[LAB_GUILD_ID])
     async def v2fixturecase(ctx: discord.ApplicationContext, case: str, season: str, confirmation: str):
