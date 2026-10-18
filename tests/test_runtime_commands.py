@@ -135,6 +135,32 @@ class RuntimeCommandsTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn('ISO two-letter',ctx.followup.send.call_args.args[0])
         await self.construct('production',exercise)
 
+    async def test_stats_attaches_mmr_graph_and_empty_filter_has_no_graph(self):
+        from v2.lab_ratings import LabRatings
+        async def exercise(bot,runtime):
+            command=next(c for c in bot.pending_application_commands if c.name=='stats')
+            closure=dict(zip(command.callback.__code__.co_freevars,(c.cell_contents for c in command.callback.__closure__)))
+            store=closure['store'];ratings=LabRatings(store)
+            with store.connect() as db:
+                for uid in range(1,13):
+                    db.execute('INSERT INTO players(user_id,mkc_id,name,verified_by) VALUES (?,?,?,999)',(uid,uid,f'P{uid}'))
+                    db.execute("INSERT INTO season_ratings(season,user_id,mmr) VALUES ('S9',?,6000)",(uid,))
+            raw=' '.join(f'P{i} {score}' for i,score in enumerate([100,100,90,90,85,85,80,80,70,70,67,67],1))
+            table=store.submit_table(999,2,raw)
+            ratings.apply(table,999,ratings.preview(table,True)['digest'],True)
+            actor=SimpleNamespace(id=12,roles=[],guild_permissions=SimpleNamespace(manage_guild=False))
+            ctx=SimpleNamespace(author=actor,guild_id=runtime['guild_id'],channel_id=runtime['channels']['debug'],respond=AsyncMock(),defer=AsyncMock(),followup=SimpleNamespace(send=AsyncMock()))
+            await command.callback(ctx)
+            message=ctx.followup.send.call_args.kwargs
+            self.assertEqual(message['embed'].image.url,'attachment://stats.png')
+            self.assertEqual(message['file'].filename,'stats.png')
+            self.assertTrue(message['file'].fp.read().startswith(b'\x89PNG'))
+            message['file'].close()
+            await command.callback(ctx,tier='c')
+            self.assertNotIn('file',ctx.followup.send.call_args.kwargs)
+            self.assertIn('No matching tables',[f.name for f in ctx.followup.send.call_args.kwargs['embed'].fields])
+        await self.construct('production',exercise)
+
     async def test_stats_default_self_filters_empty_and_access(self):
         async def exercise(bot,runtime):
             command=next(c for c in bot.pending_application_commands if c.name=='stats')

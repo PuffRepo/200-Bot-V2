@@ -543,6 +543,7 @@ async def serve_lab(token: str, runtime=None) -> int:
                     return player_statistics(data,uid,tier='tier-'+tier if tier else None,format_size=mogi_format,last=last)
             result=await asyncio.to_thread(load)
         except LabError as error:return await reply_error(ctx,error)
+        from v2.stats_graph import render_stats_graph,format_score_average
         p,s=result['player'],result['summary']
         def value(number):return '—' if number is None else f'{number:,.2f}'.rstrip('0').rstrip('.')
         embed=discord.Embed(title='S9 Player Statistics',description=discord.utils.escape_markdown(p['name']),color=discord.Color.blurple())
@@ -553,15 +554,20 @@ async def serve_lab(token: str, runtime=None) -> int:
             ('Tables / Placements',f"{s['tables']} / {s['placements']}"),
             ('MMR gains / losses / ties',f"{s['gains']} / {s['losses']} / {s['ties']}"),
             ('MMR gain rate',value(s['gain_rate'])+'%' if s['gain_rate'] is not None else '—'),
-            ('Average / Top score',f"{value(s['average_score'])} / {value(s['top_score'])}"),
-            ('Partner score average',value(s['partner_average'])),
+            ('Average / Top score',f"{format_score_average(s['average_score'])} / {value(s['top_score'])}"),
+            ('Partner score average',format_score_average(s['partner_average'])),
             ('Largest gain / loss',f"{s['largest_gain']:+d} / {s['largest_loss']:+d}"),
             ('Table MMR / Refunds included',f"{s['net_table_delta']:+d} / +{s['refunds']}"),
             ('Last 10 selected tables',f"{s['last_ten']['gains']}-{s['last_ten']['losses']}-{s['last_ten']['ties']} | {s['last_ten']['delta']:+d} MMR")):
             embed.add_field(name=label,value=text,inline=True)
         embed.set_footer(text=f"Applied S9 tables only | {'tier-'+tier if tier else 'all tiers'} | {str(mogi_format)+'-player teams' if mogi_format else 'all formats'} | {str(last)+' latest' if last else 'all tables'} | Placements excluded from gain rate; penalties excluded from table totals.")
         if not s['tables']:embed.add_field(name='No matching tables',value='No applied S9 tables match these filters. Current MMR and rank are still shown.',inline=False)
-        await ctx.followup.send(embed=embed,ephemeral=True)
+        graph=await asyncio.to_thread(render_stats_graph,result)
+        if graph is None:
+            await ctx.followup.send(embed=embed,ephemeral=True)
+        else:
+            embed.set_image(url='attachment://stats.png')
+            await ctx.followup.send(embed=embed,file=discord.File(BytesIO(graph),filename='stats.png'),ephemeral=True)
 
     @bot.slash_command(name=command_name("v2mmr"),description="See your MMR and rank",guild_ids=[LAB_GUILD_ID])
     async def v2mmr(ctx:discord.ApplicationContext):
