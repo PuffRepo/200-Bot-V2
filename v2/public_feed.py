@@ -2,6 +2,7 @@
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 from pathlib import Path
 import sqlite3
 from threading import Lock
@@ -48,6 +49,8 @@ class PublicFeed:
 
 def create_server(database, host='127.0.0.1', port=0, refresh_seconds=60):
     feed = PublicFeed(database, refresh_seconds)
+    from v2.published_results import PublishedResults
+    images = PublishedResults(database)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = 'LoungePublicFeed'
@@ -70,6 +73,24 @@ def create_server(database, host='127.0.0.1', port=0, refresh_seconds=60):
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            image_match = re.fullmatch(r'/public/results/([1-9][0-9]{0,17})\.png', path)
+            if image_match:
+                try:
+                    body = images.get(int(image_match[1]))
+                except LookupError:
+                    return self.send_json(404,b'{"error":"Result image not found"}')
+                except Exception as error:
+                    print(f'PUBLIC IMAGE ALERT: unavailable ({type(error).__name__}).', flush=True)
+                    return self.send_json(503,b'{"error":"Result image unavailable"}')
+                self.send_response(200)
+                self.send_header('Content-Type','image/png')
+                self.send_header('Cache-Control','no-store')
+                self.send_header('X-Content-Type-Options','nosniff')
+                self.send_header('Content-Length',str(len(body)))
+                self.end_headers()
+                if self.command != 'HEAD':
+                    self.wfile.write(body)
+                return
             if path not in ('/public/s9.json','/health'):
                 return self.send_json(404,b'{"error":"Not found"}')
             try:
