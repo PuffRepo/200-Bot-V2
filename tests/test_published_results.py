@@ -89,6 +89,21 @@ class PublishedResultsTest(unittest.TestCase):
             with self.assertRaises(ValueError):attachment_url(message,123,456,'1553807544013684807')
         self.assertIsNone(NoRedirect().redirect_request(None,None,302,'Found',{},'https://evil.example'))
 
+    def test_embed_attachment_returns_exact_png_without_forwarding_credentials(self):
+        url=self.message['attachments'][0]['url']
+        self.message['attachments']=[]
+        self.message['embeds']=[{'image':{'url':url}}]
+        self.assertEqual(self.images.get(1),self.png)
+        self.assertNotIn('Authorization',self.calls[-1][1])
+        for bad in ['https://evil.example/results.png',
+                    'https://cdn.discordapp.com/attachments/999/789/results.png',
+                    'https://cdn.discordapp.com/attachments/123/789/mmr.png']:
+            self.message['embeds']=[{'image':{'url':bad}}]
+            with self.assertRaises(ResultImageError):attachment_url(self.message,123,456,'1553807544013684807')
+        self.message['embeds']=[]
+        with self.assertRaises(ResultImageError) as caught:attachment_url(self.message,123,456,'1553807544013684807')
+        self.assertEqual(caught.exception.code,'results_embed_missing')
+
     def test_corrupt_and_oversized_pngs_fail_validation(self):
         for value in [b'not a PNG',b'\x89PNG\r\n\x1a\ninvalid',self.png+b'x'*(4*1024*1024)]:
             with self.assertRaises(Exception):validate_png(value)

@@ -58,12 +58,21 @@ def attachment_url(message, channel_id, message_id, application_id):
     if str(message.get('author', {}).get('id')) != str(application_id):
         raise ResultImageError('author_id_mismatch')
     files = [a for a in message.get('attachments', []) if a.get('filename') == 'results.png']
-    if len(files) != 1:
-        raise ResultImageError('results_attachment_missing')
-    item = files[0]
-    if type(item.get('size')) is not int or not 0 < item['size'] <= MAX_IMAGE_BYTES:
-        raise ResultImageError('attachment_too_large')
-    url = item.get('url', '')
+    if len(files) > 1:
+        raise ResultImageError('results_attachment_ambiguous')
+    if files:
+        item = files[0]
+        if type(item.get('size')) is not int or not 0 < item['size'] <= MAX_IMAGE_BYTES:
+            raise ResultImageError('attachment_too_large')
+        url = item.get('url', '')
+    else:
+        # Discord can represent an embedded attachment only in the embed image.
+        # Restrict this to the same channel and results.png below, just like attachments.
+        urls = {embed.get('image', {}).get('url') for embed in message.get('embeds', [])
+                if embed.get('image', {}).get('url')}
+        if len(urls) != 1:
+            raise ResultImageError('results_embed_missing' if not urls else 'results_embed_ambiguous')
+        url = urls.pop()
     parsed = urlsplit(url)
     if (parsed.scheme != 'https' or parsed.hostname not in ('cdn.discordapp.com', 'media.discordapp.net')
             or parsed.username or parsed.password or parsed.port not in (None, 443)
