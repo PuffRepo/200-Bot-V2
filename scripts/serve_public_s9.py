@@ -1,4 +1,4 @@
-"""Serve only sanitized S9 JSON; no Discord login, file serving or database writes."""
+"""Serve sanitized S9 JSON and published result PNGs; no database writes."""
 import argparse
 import os
 from pathlib import Path
@@ -17,7 +17,7 @@ def main():
     if not 1 <= args.port <= 65535:
         parser.error('Port must be 1–65535.')
     server = create_server(args.database,args.host,args.port)
-    print('PUBLIC FEED: serving sanitized S9 JSON; refresh on request at most once per minute.',flush=True)
+    print('PUBLIC FEED: serving sanitized S9 JSON and recorded result images.',flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
