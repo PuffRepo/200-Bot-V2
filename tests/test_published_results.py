@@ -12,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from PIL import Image
 
-from v2.published_results import PublishedResults, attachment_url, validate_png, NoRedirect
+from v2.published_results import PublishedResults, attachment_url, validate_png, NoRedirect, ResultImageError
 from v2.public_feed import create_server
 
 
@@ -92,6 +92,16 @@ class PublishedResultsTest(unittest.TestCase):
     def test_corrupt_and_oversized_pngs_fail_validation(self):
         for value in [b'not a PNG',b'\x89PNG\r\n\x1a\ninvalid',self.png+b'x'*(4*1024*1024)]:
             with self.assertRaises(Exception):validate_png(value)
+
+    def test_diagnostic_labels_distinguish_failure_without_disclosing_metadata(self):
+        self.images.token=None
+        with patch.dict('os.environ',{},clear=True):
+            with self.assertRaises(ResultImageError) as caught:self.images.get(1)
+        self.assertEqual(caught.exception.code,'credentials_unavailable')
+        message=json.loads(json.dumps(self.message));message['author']['id']='999'
+        with self.assertRaises(ResultImageError) as caught:attachment_url(message,123,456,'1553807544013684807')
+        self.assertEqual(caught.exception.code,'author_id_mismatch')
+        self.assertNotIn('999',str(caught.exception))
 
     def test_a_reversal_during_download_blocks_delivery(self):
         original=self.images.fetch

@@ -49,7 +49,7 @@ class PublicFeed:
 
 def create_server(database, host='127.0.0.1', port=0, refresh_seconds=60):
     feed = PublicFeed(database, refresh_seconds)
-    from v2.published_results import PublishedResults
+    from v2.published_results import PublishedResults, ResultImageError
     images = PublishedResults(database)
 
     class Handler(BaseHTTPRequestHandler):
@@ -79,6 +79,9 @@ def create_server(database, host='127.0.0.1', port=0, refresh_seconds=60):
                     body = images.get(int(image_match[1]))
                 except LookupError:
                     return self.send_json(404,b'{"error":"Result image not found"}')
+                except ResultImageError as error:
+                    print(f'PUBLIC IMAGE ALERT: {error.code}.', flush=True)
+                    return self.send_json(503,json.dumps({'error':'Result image unavailable','code':error.code}).encode())
                 except Exception as error:
                     print(f'PUBLIC IMAGE ALERT: unavailable ({type(error).__name__}).', flush=True)
                     return self.send_json(503,b'{"error":"Result image unavailable"}')

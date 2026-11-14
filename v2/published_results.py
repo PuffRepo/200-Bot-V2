@@ -18,6 +18,13 @@ MAX_IMAGE_BYTES = 4 * 1024 * 1024
 APPLICATION_ID = '1553807544013684807'
 
 
+class ResultImageError(ValueError):
+    """Fixed diagnostic labels only; never exception text from HTTP clients."""
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *_):
         return None
@@ -26,40 +33,42 @@ class NoRedirect(HTTPRedirectHandler):
 def read_url(url, headers, limit):
     with build_opener(NoRedirect()).open(Request(url, headers=headers), timeout=8) as response:
         if response.status != 200:
-            raise ValueError('Image source unavailable')
+            raise ResultImageError('source_unavailable')
         data = response.read(limit + 1)
     if len(data) > limit:
-        raise ValueError('Image source exceeds size limit')
+        raise ResultImageError('response_too_large')
     return data
 
 
 def validate_png(data):
     if len(data) > MAX_IMAGE_BYTES or not data.startswith(b'\x89PNG\r\n\x1a\n'):
-        raise ValueError('Expected a bounded PNG')
+        raise ResultImageError('invalid_png')
     with Image.open(BytesIO(data)) as image:
         if image.format != 'PNG' or not (1 <= image.width <= 4096 and 1 <= image.height <= 4096):
-            raise ValueError('Unexpected image dimensions')
+            raise ResultImageError('invalid_image_dimensions')
         image.verify()
     return data
 
 
 def attachment_url(message, channel_id, message_id, application_id):
-    if (str(message.get('id')) != str(message_id)
-            or str(message.get('channel_id')) != str(channel_id)
-            or str(message.get('author', {}).get('id')) != str(application_id)):
-        raise ValueError('Results message identity mismatch')
+    if str(message.get('id')) != str(message_id):
+        raise ResultImageError('message_id_mismatch')
+    if str(message.get('channel_id')) != str(channel_id):
+        raise ResultImageError('channel_id_mismatch')
+    if str(message.get('author', {}).get('id')) != str(application_id):
+        raise ResultImageError('author_id_mismatch')
     files = [a for a in message.get('attachments', []) if a.get('filename') == 'results.png']
     if len(files) != 1:
-        raise ValueError('Results attachment missing or ambiguous')
+        raise ResultImageError('results_attachment_missing')
     item = files[0]
     if type(item.get('size')) is not int or not 0 < item['size'] <= MAX_IMAGE_BYTES:
-        raise ValueError('Results attachment exceeds size limit')
+        raise ResultImageError('attachment_too_large')
     url = item.get('url', '')
     parsed = urlsplit(url)
     if (parsed.scheme != 'https' or parsed.hostname not in ('cdn.discordapp.com', 'media.discordapp.net')
             or parsed.username or parsed.password or parsed.port not in (None, 443)
             or not re.fullmatch(r'/attachments/' + re.escape(str(channel_id)) + r'/[0-9]+/results\.png', parsed.path)):
-        raise ValueError('Invalid results attachment URL')
+        raise ResultImageError('attachment_url_invalid')
     return url
 
 
@@ -81,7 +90,7 @@ class PublishedResults:
         if not row:
             raise LookupError('Published applied S9 table not found')
         if any(type(value) is not int or value < 1 for value in row):
-            raise ValueError('Invalid publication reference')
+            raise ResultImageError('publication_reference_invalid')
         return row
 
     def get(self, table_id):
@@ -95,7 +104,7 @@ class PublishedResults:
                 return cached[1]
             token = self.token or os.environ.get('DISCORD_BOT_TOKEN')
             if not token:
-                raise ValueError('Results image credentials unavailable')
+                raise ResultImageError('credentials_unavailable')
             metadata = self.fetch(
                 f'https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}',
                 {'Authorization': 'Bot ' + token, 'User-Agent': '200-Lounge-V2/1.0'}, 256 * 1024)
