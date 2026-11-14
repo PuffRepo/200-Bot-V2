@@ -270,8 +270,12 @@ class LabStore:
             except sqlite3.IntegrityError as error:
                 raise LabError("You already have a pending name request.") from error
 
-    def review(self, request_id: int, reviewer_id: int, approve: bool, verified_name: str = "") -> str:
+    def review(self, request_id: int, reviewer_id: int, approve: bool, verified_name: str = "", *, mkc_country: str = "") -> str:
+        from v2.countries import country_code, player_countries
+        if mkc_country and not country_code(mkc_country):
+            raise LabError("Invalid MKCentral country code; review unchanged.")
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
             if row is None or row['status'] != 'pending':
                 raise LabError("Request is missing or already reviewed.")
@@ -283,6 +287,15 @@ class LabStore:
                         name = player_name(verified_name)
                         db.execute("INSERT INTO players(user_id,mkc_id,name,verified_by) VALUES (?,?,?,?)",
                                    (row['user_id'], int(row['value']), name, reviewer_id))
+                        code = country_code(mkc_country)
+                        if code:
+                            before = player_countries(db).get(row['user_id'], '')
+                            reason = f"MKCentral verification: https://mkcentral.com/registry/players/profile?id={row['value']}"
+                            saved = db.execute("INSERT INTO player_countries(user_id,country_code,actor_id,reason) VALUES (?,?,?,?) ON CONFLICT(user_id) DO NOTHING",
+                                               (row['user_id'],code,reviewer_id,reason))
+                            if saved.rowcount:
+                                db.execute("INSERT INTO player_country_audit(user_id,before_code,after_code,actor_id,reason) VALUES (?,?,?,?,?)",
+                                           (row['user_id'],before,code,reviewer_id,reason))
                     else:
                         if db.execute("UPDATE players SET name=? WHERE user_id=?", (row['value'],row['user_id'])).rowcount != 1:
                             raise LabError("Player no longer exists.")
