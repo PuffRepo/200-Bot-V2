@@ -192,12 +192,20 @@ async def serve_lab(token: str, runtime=None) -> int:
         row=dict(row)
         display_value=f"https://mkcentral.com/registry/players/profile?id={row['value']}" if row['kind']=='verify' else row['value']
         if reviewer_id==row['user_id']:raise LabError('A different staff member must review this request.')
+        mkc_country = ''
+        flag_note = ''
+        if row['kind'] == 'verify':
+            from v2.mkc_country import profile_country
+            mkc_country = await asyncio.to_thread(profile_country, int(row['value']))
+            flag_note = ('\nMKCentral country: '+country_label(mkc_country)+'. Saved on approval; existing staff flag preserved.'
+                         if mkc_country else '\nMKCentral country unavailable. Verification can proceed; use /'+command_name('v2flag')+' later if needed.')
         # Fixed request contents are re-read by the store before its atomic approval.
-        preview={'digest':str(request_id)+':'+row['value']+':'+verified_name,'content':f"{row['kind'].title()} request from <@{row['user_id']}>: {display_value}"+(f"\nVerified Lounge name: {verified_name}" if verified_name else '')}
+        preview={'digest':str(request_id)+':'+row['value']+':'+verified_name+':'+mkc_country,'mkc_country':mkc_country,'content':f"{row['kind'].title()} request from <@{row['user_id']}>: {display_value}"+(f"\nVerified Lounge name: {verified_name}" if verified_name else '')+flag_note}
         async def refresh():return (await request_panel(request_id,reviewer_id,verified_name))[0]
-        async def approve(interaction,unused):
-            await asyncio.to_thread(store.review,request_id,interaction.user.id,True,verified_name)
-            return 'Request approved. '+await sync_members([row['user_id']])
+        async def approve(interaction,reviewed):
+            approved_country = reviewed.get('mkc_country','')
+            await asyncio.to_thread(store.review,request_id,interaction.user.id,True,verified_name,mkc_country=approved_country)
+            return 'Request approved. '+(('MKCentral flag recorded where available; existing staff flag preserved.\n' if approved_country else 'No MKCentral flag available; use /'+command_name('v2flag')+' if needed.\n') if row['kind']=='verify' else '')+await sync_members([row['user_id']])
         async def reject(interaction):
             await asyncio.to_thread(store.review,request_id,interaction.user.id,False)
             return 'Request rejected. Member registration/name unchanged.'
